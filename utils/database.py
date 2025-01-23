@@ -1,64 +1,96 @@
 import aiosqlite
-import os
 from pathlib import Path
-from typing import Optional, Dict
+import logging
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / 'data' / 'problems.db'
+DB_PATH = BASE_DIR / "data" / "problems.db"
 
 async def init_db():
-    (BASE_DIR / 'data').mkdir(exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS problems (
-                id INTEGER PRIMARY KEY,
-                exam TEXT NOT NULL,
-                topic TEXT NOT NULL,
-                question TEXT NOT NULL,
-                answer TEXT NOT NULL,
-                solution TEXT NOT NULL,
-                difficulty INTEGER DEFAULT 1
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    exam TEXT DEFAULT 'ОГЭ',
+                    algebra_solved INTEGER DEFAULT 0,
+                    geometry_solved INTEGER DEFAULT 0,
+                    difficulty INTEGER DEFAULT 1
+                )
+            ''')
+            await conn.commit()
+            logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization error: {str(e)}")
+        raise
+
+async def save_user_exam(user_id: int, exam: str):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                '''INSERT OR REPLACE INTO users 
+                (user_id, exam) 
+                VALUES (?, ?)''',
+                (user_id, exam)
             )
-        ''')
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                algebra_solved INTEGER DEFAULT 0,
-                geometry_solved INTEGER DEFAULT 0
+            await conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving exam: {str(e)}")
+        raise
+
+async def get_user_difficulty(user_id: int) -> int:
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                "INSERT OR IGNORE INTO users (user_id) VALUES (?)",
+                (user_id,)
             )
-        ''')
-        await conn.commit()
+            cursor = await conn.execute(
+                "SELECT difficulty FROM users WHERE user_id = ?",
+                (user_id,)
+            )
+            result = await cursor.fetchone()
+            return result[0] if result else 1
+    except Exception as e:
+        logger.error(f"Error getting difficulty: {str(e)}")
+        return 1
 
-async def get_problem_by_params(exam: str, topic: str) -> Optional[Dict]:
-    async with aiosqlite.connect(DB_PATH) as conn:
-        cursor = await conn.execute(
-            '''SELECT * FROM problems 
-            WHERE exam = ? AND topic = ? 
-            ORDER BY RANDOM() LIMIT 1''',
-            (exam, topic)
-        )
-        problem = await cursor.fetchone()
-        return dict(zip(
-            ['id', 'exam', 'topic', 'question', 'answer', 'solution', 'difficulty'],
-            problem
-        )) if problem else None
+async def update_user_stats(user_id: int, topic: str):
+    try:
+        column = "algebra_solved" if topic == "Алгебра" else "geometry_solved"
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute(
+                f'''UPDATE users 
+                SET {column} = {column} + 1,
+                    difficulty = difficulty + CASE
+                        WHEN ({column} + 1) % 5 = 0 THEN 1
+                        ELSE 0
+                    END
+                WHERE user_id = ?''',
+                (user_id,)
+            )
+            await conn.commit()
+    except Exception as e:
+        logger.error(f"Error updating stats: {str(e)}")
+        raise
 
-async def update_progress(user_id: int, topic: str):
-    column = 'algebra_solved' if topic == 'Алгебра' else 'geometry_solved'
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute(f'''
-            INSERT INTO users (user_id, {column}) 
-            VALUES (?, 1)
-            ON CONFLICT(user_id) DO UPDATE SET {column} = {column} + 1
-        ''', (user_id,))
-        await conn.commit()
-
-async def get_solved_count(user_id: int, topic: str) -> int:
-    column = 'algebra_solved' if topic == 'Алгебра' else 'geometry_solved'
-    async with aiosqlite.connect(DB_PATH) as conn:
-        cursor = await conn.execute(
-            f'SELECT {column} FROM users WHERE user_id = ?',
-            (user_id,)
-        )
-        result = await cursor.fetchone()
-        return result[0] if result else 0
+async def get_user_stats(user_id: int) -> dict:
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.execute(
+                '''SELECT exam, algebra_solved, 
+                   geometry_solved, difficulty 
+                   FROM users WHERE user_id = ?''',
+                (user_id,)
+            )
+            result = await cursor.fetchone()
+            return {
+                'exam': result[0],
+                'algebra': result[1],
+                'geometry': result[2],
+                'difficulty': result[3]
+            } if result else {}
+    except Exception as e:
+        logger.error(f"Error getting stats: {str(e)}")
+        return {}

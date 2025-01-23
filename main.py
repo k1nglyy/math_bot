@@ -1,20 +1,18 @@
 import os
 import logging
-from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from handlers.user_handlers import router
 from utils.database import init_db
-
+from dotenv import load_dotenv
 load_dotenv("config/.env")
-
 
 async def main():
     await init_db()
     bot = Bot(
         token=os.getenv("BOT_TOKEN"),
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
     )
     dp = Dispatcher()
     dp.include_router(router)
