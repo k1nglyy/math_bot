@@ -122,6 +122,7 @@ async def show_help(message: types.Message):
         parse_mode="Markdown"
     )
 
+
 @router.message(UserState.solving_task)
 async def check_answer(message: types.Message, state: FSMContext):
     try:
@@ -131,25 +132,23 @@ async def check_answer(message: types.Message, state: FSMContext):
             await message.answer("Сначала запросите задачу через меню!")
             return
         user_answer = message.text.strip().replace(",", ".").lower()
-        correct_answers = problem['answer'].split("; ")  # Разделяем варианты ответов
-        is_correct = False
-        for ans in correct_answers:
-            try:
-                user_num = float(user_answer)
-                correct_num = float(ans)
-                if abs(user_num - correct_num) < 0.01:
-                    is_correct = True
-                    break
-            except:
-                if user_answer == ans:
-                    is_correct = True
-                    break
+        correct_answers = problem['answer'].split("; ")
+        try:
+            user_parts = sorted([float(part.strip()) for part in user_answer.split(";")])
+            correct_parts = sorted([float(part.strip()) for part in correct_answers])
+            is_correct = all(
+                abs(user - correct) < 0.01
+                for user, correct in zip(user_parts, correct_parts)
+            )
+        except ValueError:
+            is_correct = user_answer in correct_answers
+
         if is_correct:
             update_user_stats(message.from_user.id)
             await message.answer("✅ *Верно!* Молодец! 😊", parse_mode="Markdown")
         else:
             hint_text = (
-                f"❌ *Неверно.* Правильные ответы: `{problem['answer']}`\n\n"
+                f"❌ *Неверно.* Правильный ответ: `{problem['answer']}`\n\n"
                 f"{problem['hint']}"
             )
             await message.answer(hint_text, parse_mode="Markdown")
@@ -157,5 +156,12 @@ async def check_answer(message: types.Message, state: FSMContext):
         await send_task(message, state)
 
     except Exception as e:
-        logger.error(f"Ошибка при проверке ответа: {e}")
-        await message.answer("⚠️ Произошла ошибка. Попробуйте еще раз.")
+        logger.error(f"Ошибка при проверке ответа: {e}", exc_info=True)
+        await message.answer("⚠️ Неверный формат ответа. Примеры: 3; 2.5; 1/3")
+@router.message(lambda message: message.text == "📊 Статистика")
+async def show_stats(message: types.Message):
+    stats = get_user_stats(message.from_user.id)
+    await message.answer(
+        f"📊 *Ваша статистика:*\nРешено задач: **{stats['solved']}**\n",
+        parse_mode="Markdown"
+    )

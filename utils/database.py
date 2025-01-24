@@ -110,6 +110,15 @@ def update_user_stats(user_id: int):
     except Error as e:
         print(f"Ошибка при обновлении статистики: {e}")
 
+def get_user_stats(user_id: int) -> dict:
+    conn = sqlite3.connect('data/problems.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT solved FROM user_stats WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return {"solved": result[0]} if result else {"solved": 0}
+
+
 
 if __name__ == "__main__":
     create_tables()

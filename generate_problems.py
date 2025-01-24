@@ -40,15 +40,23 @@ def generate_problems():
         exam_type = random.choice(["ЕГЭ", "ОГЭ"])
         level = "база" if exam_type == "ОГЭ" else random.choice(["база", "профиль"])
         complexity = random.randint(3, 5) if exam_type == "ЕГЭ" else random.randint(1, 2)
-
         if topic == "Алгебра":
-            a = random.randint(1, 10)
-            b = random.randint(1, 10)
-            x1, x2 = random.sample(range(-5, 10), 2)
-            text = template["text"].format(a=a, b=b)
-            answer = template["answer"].format(x1=x1, x2=x2)
-            hint = template["hint"].format(a=a, b=b)
+            while True:
+                a = random.randint(1, 10)
+                b = random.randint(1, 10)
+                discriminant = a ** 2 - 4 * 1 * b
+                if discriminant >= 0:
+                    sqrt_d = discriminant ** 0.5
+                    x1 = (a + sqrt_d) / 2
+                    x2 = (a - sqrt_d) / 2
 
+                    # Округление
+                    x1 = round(x1, 2) if not x1.is_integer() else int(x1)
+                    x2 = round(x2, 2) if not x2.is_integer() else int(x2)
+                    answer = f"{x1}; {x2}" if x1 != x2 else f"{x1}"
+                    break
+            text = template["text"].format(a=a, b=b)
+            hint = template["hint"].format(a=a, b=b) + f"\nДискриминант: D = {a}² - 4*1*{b} = {discriminant}."
         elif topic == "Геометрия":
             r = random.randint(1, 10)
             area = round(3.14 * r ** 2, 2)
