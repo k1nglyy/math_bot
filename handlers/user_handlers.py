@@ -131,27 +131,27 @@ async def check_answer(message: types.Message, state: FSMContext):
             await message.answer("Сначала запросите задачу через меню!")
             return
         user_answer = message.text.strip().replace(",", ".").lower()
-        correct_answer = problem['answer'].replace(",", ".").lower()
-        correct_answers = [correct_answer]
-        if "." in correct_answer or "/" in correct_answer:
+        correct_answers = problem['answer'].split("; ")  # Разделяем варианты ответов
+        is_correct = False
+        for ans in correct_answers:
             try:
-                decimal_value = float(correct_answer)
-                rounded = round(decimal_value, 2)
-                formatted_rounded = f"{rounded:.2f}".rstrip('0').rstrip('.')
-                if formatted_rounded != str(int(rounded)):
-                    correct_answers.append(formatted_rounded)
-            except ValueError:
-                pass
-        if user_answer in correct_answers:
-            update_user_stats(message.from_user.id)  # Обновление статистики
+                user_num = float(user_answer)
+                correct_num = float(ans)
+                if abs(user_num - correct_num) < 0.01:
+                    is_correct = True
+                    break
+            except:
+                if user_answer == ans:
+                    is_correct = True
+                    break
+        if is_correct:
+            update_user_stats(message.from_user.id)
             await message.answer("✅ *Верно!* Молодец! 😊", parse_mode="Markdown")
         else:
             hint_text = (
-                f"❌ *Неверно.* Правильный ответ: `{problem['answer']}`\n\n"
+                f"❌ *Неверно.* Правильные ответы: `{problem['answer']}`\n\n"
                 f"{problem['hint']}"
             )
-            if any(keyword in problem['hint'] for keyword in ["дробь", "округлите"]):
-                hint_text += "\n\nℹ️ *Совет:* Используйте дробь (1/3) или округление до двух знаков."
             await message.answer(hint_text, parse_mode="Markdown")
 
         await send_task(message, state)

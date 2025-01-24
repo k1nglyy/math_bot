@@ -1,6 +1,6 @@
 from utils.database import add_bulk_problems
 import random
-
+from fractions import Fraction
 topics = {
     "Алгебра": [
         {
@@ -53,29 +53,28 @@ def generate_problems():
             r = random.randint(1, 10)
             area = round(3.14 * r ** 2, 2)
             text = template["text"].format(r=r)
-            answer = str(area)  # Явное преобразование в строку
+            answer = str(area)
             hint = template["hint"]
-
         elif topic == "Теория вероятностей":
             p = round(random.uniform(0.1, 0.9), 2)
-            answer = str(round(1 - p, 2))  # Исправлено: преобразование в строку
+            decimal_answer = round(1 - p, 2)
+            fraction_answer = Fraction(decimal_answer).limit_denominator(10)
+            answer = f"{decimal_answer:.2f}; {fraction_answer}"
             text = template["text"].format(p=p)
-            hint = template["hint"]
-
+            hint = template["hint"] + "\nМожно ввести ответ как десятичной дробью (0.33), так и обыкновенной (1/3)."
         elif topic == "Статистика":
             data = [random.randint(1, 10) for _ in range(5)]
-            mean = round(sum(data) / len(data), 2)
+            mean = sum(data) / len(data)
+            decimal_mean = round(mean, 2)
+            fraction_mean = Fraction(mean).limit_denominator(10)
+            answer = f"{decimal_mean:.2f}; {fraction_mean}"
             text = template["text"].format(data=", ".join(map(str, data)))
-            answer = str(mean)  # Явное преобразование в строку
-            hint = template["hint"]
-
-        # Проверка answer как строки
+            hint = template["hint"] + "\nОтвет можно ввести десятичным (3.5) или дробью (7/2)."
         if isinstance(answer, str):
             if ("." in answer and len(answer.split(".")[1]) > 2) or "/" in answer:
                 hint += "\n\nℹ️ *Совет:* Можно ввести дробь (1/3) или округлить до двух знаков."
         else:
-            answer = str(answer)  # Принудительное преобразование на случай ошибок
-
+            answer = str(answer)
         problem = {
             "topic": topic,
             "text": text,
