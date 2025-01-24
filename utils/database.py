@@ -41,13 +41,19 @@ def get_random_problem(exam_type: str, level: str) -> dict:
     ''', (exam_type, level))
     problem = cursor.fetchone()
     conn.close()
+
+    if not problem:
+        return None
+
     return {
         "id": problem[0],
         "topic": problem[1],
         "text": problem[2],
         "answer": problem[3],
+        "exam_type": problem[4],
+        "level": problem[5],
         "hint": problem[7]
-    } if problem else None
+    }
 
 
 def add_sample_problems():

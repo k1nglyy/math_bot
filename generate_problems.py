@@ -38,7 +38,15 @@ def generate_problems():
             x1, x2 = random.sample(range(-5, 10), 2)
             text = template["text"].format(a=a, b=b)
             answer = template["answer"].format(x1=x1, x2=x2)
-            hint = template["hint"].format(a=a, b=b)
+            if any(["/" in answer, "." in answer and len(answer.split(".")[1]) > 2]):
+                hint = (
+                    f"{template['hint'].format(a=a, b=b)}\n\n"
+                    "❗ *Формат ответа:*\n"
+                    "- Округлите до двух знаков (например, 0.33).\n"
+                    "- Или введите дробь (1/3)."
+                )
+            else:
+                hint = template["hint"].format(a=a, b=b)
         elif topic == "Геометрия":
             r = random.randint(1, 10)
             area = round(3.14 * r ** 2, 2)
