@@ -42,21 +42,25 @@ def generate_problems():
         complexity = random.randint(3, 5) if exam_type == "ЕГЭ" else random.randint(1, 2)
         if topic == "Алгебра":
             while True:
-                a = random.randint(1, 10)
-                b = random.randint(1, 10)
-                discriminant = a ** 2 - 4 * 1 * b
+                a = random.randint(1, 5)
+                b = random.randint(-10, 10)
+                c = random.randint(-10, 10)
+                discriminant = b ** 2 - 4 * a * c
                 if discriminant >= 0:
                     sqrt_d = discriminant ** 0.5
-                    x1 = (a + sqrt_d) / 2
-                    x2 = (a - sqrt_d) / 2
-
-                    # Округление
+                    x1 = (-b + sqrt_d) / (2 * a)
+                    x2 = (-b - sqrt_d) / (2 * a)
                     x1 = round(x1, 2) if not x1.is_integer() else int(x1)
                     x2 = round(x2, 2) if not x2.is_integer() else int(x2)
-                    answer = f"{x1}; {x2}" if x1 != x2 else f"{x1}"
+                    roots = sorted([x1, x2], reverse=True)
+                    answer = f"{roots[0]}; {roots[1]}" if x1 != x2 else f"{x1}"
                     break
-            text = template["text"].format(a=a, b=b)
-            hint = template["hint"].format(a=a, b=b) + f"\nДискриминант: D = {a}² - 4*1*{b} = {discriminant}."
+            equation = f"{a}x² {'+' if b >= 0 else '-'} {abs(b)}x {'+' if c >= 0 else '-'} {abs(c)} = 0"
+            text = f"Решите уравнение: {equation}"
+            hint = (
+                f"Формула дискриминанта: D = b² - 4ac = {b}² - 4*{a}*{c} = {discriminant}.\n"
+                f"Корни: x = (−b ± √D)/(2a) = (−({b}) ± {sqrt_d:.2f})/(2*{a})"
+            )
         elif topic == "Геометрия":
             r = random.randint(1, 10)
             area = round(3.14 * r ** 2, 2)
