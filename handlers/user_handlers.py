@@ -161,7 +161,47 @@ async def check_answer(message: types.Message, state: FSMContext):
 @router.message(lambda message: message.text == "📊 Статистика")
 async def show_stats(message: types.Message):
     stats = get_user_stats(message.from_user.id)
+
+    # Основная статистика
+    total_attempts = stats.get('total_attempts', 0)
+    solved = stats.get('solved', 0)
+    accuracy = (solved / total_attempts * 100) if total_attempts > 0 else 0
+
+    # Статистика по темам
+    topics_stats = stats.get('topics', {})
+    topics_text = "\n".join([
+        f"  • {topic}: {count} задач"
+        for topic, count in topics_stats.items()
+    ]) if topics_stats else "  • Нет решённых задач"
+
+    # Статистика по уровням сложности
+    complexity_stats = stats.get('complexity', {})
+    complexity_text = "\n".join([
+        f"  • {level} уровень: {count} задач"
+        for level, count in sorted(complexity_stats.items())
+    ]) if complexity_stats else "  • Нет решённых задач"
+
+    # Статистика по типам экзаменов
+    exam_stats = stats.get('exam_types', {})
+    exam_text = "\n".join([
+        f"  • {exam_type}: {count} задач"
+        for exam_type, count in exam_stats.items()
+    ]) if exam_stats else "  • Нет решённых задач"
+
+    message_text = f"""
+📊 *Ваша статистика:*
+📝 *Общая статистика:*
+• Всего попыток: {total_attempts}
+• Решено задач: {solved}
+• Процент правильных: {accuracy:.1f}%
+📚 *По темам:*
+{topics_text}
+🎯 *По сложности:*
+{complexity_text}
+📋 *По типам экзаменов:*
+{exam_text}
+"""
     await message.answer(
-        f"📊 *Ваша статистика:*\nРешено задач: **{stats['solved']}**\n",
+        message_text,
         parse_mode="Markdown"
     )

@@ -6,7 +6,7 @@ topics = {
         {
             "text": r"Решите уравнение: \( x^2 - {a}x + {b} = 0 \).",
             "answer": "{x1};{x2}",
-            "hint": r"Используйте теорему Виета: \( x_1 + x_2 = {a}, \, x_1 \cdot x_2 = {b} \)."
+            "hint": r"Используйте формулу дискриминанта: D = {a}² - 4·{b}."
         }
     ],
     "Геометрия": [
@@ -42,25 +42,42 @@ def generate_problems():
         complexity = random.randint(3, 5) if exam_type == "ЕГЭ" else random.randint(1, 2)
         if topic == "Алгебра":
             while True:
-                a = random.randint(1, 5)
-                b = random.randint(-10, 10)
-                c = random.randint(-10, 10)
-                discriminant = b ** 2 - 4 * a * c
+                a = random.randint(1, 10)
+                b = random.randint(1, 10)
+                # Для уравнения x² - ax + b = 0
+                # Дискриминант: D = a² - 4b
+                discriminant = a * a - 4 * b
+
                 if discriminant >= 0:
                     sqrt_d = discriminant ** 0.5
-                    x1 = (-b + sqrt_d) / (2 * a)
-                    x2 = (-b - sqrt_d) / (2 * a)
-                    x1 = round(x1, 2) if not x1.is_integer() else int(x1)
-                    x2 = round(x2, 2) if not x2.is_integer() else int(x2)
-                    roots = sorted([x1, x2], reverse=True)
-                    answer = f"{roots[0]}; {roots[1]}" if x1 != x2 else f"{x1}"
-                    break
-            equation = f"{a}x² {'+' if b >= 0 else '-'} {abs(b)}x {'+' if c >= 0 else '-'} {abs(c)} = 0"
-            text = f"Решите уравнение: {equation}"
-            hint = (
-                f"Формула дискриминанта: D = b² - 4ac = {b}² - 4*{a}*{c} = {discriminant}.\n"
-                f"Корни: x = (−b ± √D)/(2a) = (−({b}) ± {sqrt_d:.2f})/(2*{a})"
-            )
+                    # Корни: x = (a ± √D) / 2
+                    x1 = (a + sqrt_d) / 2
+                    x2 = (a - sqrt_d) / 2
+
+                    # Проверка корней (подстановка в исходное уравнение)
+                    check1 = abs(x1 * x1 - a * x1 + b) < 0.0001
+                    check2 = abs(x2 * x2 - a * x2 + b) < 0.0001
+
+                    if check1 and check2:
+                        # Сортировка корней (меньший первым)
+                        x1, x2 = sorted([x1, x2])
+
+                        # Округление и форматирование
+                        x1 = round(x1, 2) if not x1.is_integer() else int(x1)
+                        x2 = round(x2, 2) if not x2.is_integer() else int(x2)
+
+                        # Форматирование ответа
+                        if x1 == x2:
+                            answer = str(x1)
+                        else:
+                            answer = f"{x1}; {x2}"
+                        break
+
+            text = template["text"].format(a=a, b=b)
+            hint = (f"Решение квадратного уравнения x² - {a}x + {b} = 0:\n"
+                   f"D = {a}² - 4·{b} = {discriminant}\n"
+                   f"x₁ = ({a} + √{discriminant}) / 2 = {x1}\n"
+                   f"x₂ = ({a} - √{discriminant}) / 2 = {x2}")
         elif topic == "Геометрия":
             r = random.randint(1, 10)
             area = round(3.14 * r ** 2, 2)
@@ -68,20 +85,37 @@ def generate_problems():
             answer = str(area)
             hint = template["hint"]
         elif topic == "Теория вероятностей":
-            p = round(random.uniform(0.1, 0.9), 2)
-            decimal_answer = round(1 - p, 2)
-            fraction_answer = Fraction(decimal_answer).limit_denominator(10)
-            answer = f"{decimal_answer:.2f}; {fraction_answer}"
-            text = template["text"].format(p=p)
-            hint = template["hint"] + "\nМожно ввести ответ как десятичной дробью (0.33), так и обыкновенной (1/3)."
+            p = Fraction(random.randint(1, 9), 10)
+            fraction_answer = 1 - p
+            decimal_answer = float(fraction_answer)
+            answer = f"{fraction_answer}"
+            if fraction_answer.denominator != 1:
+                answer += f"; {decimal_answer:.2f}"
+            text = template["text"].format(p=float(p))
+            hint = (template["hint"] +
+                   f"\nРешение: 1 - {p} = {fraction_answer}" +
+                   "\nОтвет можно записать обыкновенной дробью (например, 3/10) " +
+                   "или десятичной дробью.")
         elif topic == "Статистика":
-            data = [random.randint(1, 10) for _ in range(5)]
+            data = [random.randint(1, 20) for _ in range(5)]
             mean = sum(data) / len(data)
-            decimal_mean = round(mean, 2)
-            fraction_mean = Fraction(mean).limit_denominator(10)
-            answer = f"{decimal_mean:.2f}; {fraction_mean}"
+
+            if mean.is_integer():
+                answer = str(int(mean))
+            else:
+                decimal_mean = round(mean, 2)
+                fraction_mean = Fraction(mean).limit_denominator(100)
+                if float(fraction_mean) == decimal_mean:
+                    answer = f"{decimal_mean}; {fraction_mean}"
+                else:
+                    answer = str(decimal_mean)
+
             text = template["text"].format(data=", ".join(map(str, data)))
-            hint = template["hint"] + "\nОтвет можно ввести десятичным (3.5) или дробью (7/2)."
+            hint = (template["hint"] +
+                   f"\nРешение: ({' + '.join(map(str, data))}) ÷ {len(data)} = {answer.split(';')[0]}")
+
+            if ";" in answer:
+                hint += "\nОтвет можно ввести как десятичной дробью, так и обыкновенной."
         if isinstance(answer, str):
             if ("." in answer and len(answer.split(".")[1]) > 2) or "/" in answer:
                 hint += "\n\nℹ️ *Совет:* Можно ввести дробь (1/3) или округлить до двух знаков."
