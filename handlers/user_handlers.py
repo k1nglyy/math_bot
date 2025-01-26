@@ -207,10 +207,13 @@ async def show_help(message: types.Message):
 @router.message(lambda message: message.text == "🔙 Назад")
 async def go_back(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
+
     if current_state == UserState.choosing_level.state:
+        # Возврат к выбору экзамена
         await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
         await state.set_state(UserState.choosing_exam)
     else:
+        # Возврат в главное меню
         await state.clear()
         await message.answer("Выберите действие:", reply_markup=main_menu)
 
@@ -258,6 +261,7 @@ def check_answers_equality(user_answer, correct_answer, problem_type):
         if ";" in str(correct_answer):
             user_parts = [p.strip() for p in str(user_answer).split(";")]
             correct_parts = [p.strip() for p in str(correct_answer).split(";")]
+
             if len(user_parts) != len(correct_parts):
                 return False
             user_parts = sorted([normalize_number(p) for p in user_parts])
@@ -283,9 +287,9 @@ def check_single_answer(user_value, correct_value, problem_type):
                 "Теория вероятностей": 0.01,
                 "Статистика": 0.01
             }.get(problem_type, 0.01)
+
             return abs(float(user_num) - float(correct_num)) <= tolerance
         return str(user_value).strip().lower() == str(correct_value).strip().lower()
-
     except Exception as e:
         logger.error(f"Ошибка при сравнении одиночных ответов: {e}")
         return False
