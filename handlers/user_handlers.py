@@ -3,7 +3,11 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from utils.database import get_random_problem, update_user_stats
+from utils.database import (
+    get_random_problem,
+    update_user_stats,
+    get_user_stats
+)
 import logging
 
 router = Router()
@@ -33,10 +37,14 @@ level_menu = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
+
+
 class UserState(StatesGroup):
     choosing_exam = State()
     choosing_level = State()
     solving_task = State()
+
+
 @router.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     try:
@@ -56,10 +64,12 @@ async def start(message: types.Message, state: FSMContext):
         logger.error(f"Ошибка в /start: {e}")
         await message.answer("⚠️ Произошла ошибка. Попробуйте позже.")
 
+
 @router.message(lambda message: message.text == "🎓 Выбрать экзамен")
 async def choose_exam(message: types.Message, state: FSMContext):
     await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
     await state.set_state(UserState.choosing_exam)
+
 
 @router.message(lambda message: message.text in ["ЕГЭ", "ОГЭ"], UserState.choosing_exam)
 async def set_exam(message: types.Message, state: FSMContext):
@@ -74,6 +84,7 @@ async def set_exam(message: types.Message, state: FSMContext):
         await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
         await state.set_state(UserState.choosing_level)
 
+
 @router.message(lambda message: message.text in ["База", "Профиль"], UserState.choosing_level)
 async def set_level(message: types.Message, state: FSMContext):
     level = message.text.lower()
@@ -84,6 +95,7 @@ async def set_level(message: types.Message, state: FSMContext):
         reply_markup=main_menu
     )
     await state.set_state(UserState.solving_task)
+
 
 @router.message(lambda message: message.text == "📚 Получить задачу", UserState.solving_task)
 async def send_task(message: types.Message, state: FSMContext):
@@ -105,6 +117,7 @@ async def send_task(message: types.Message, state: FSMContext):
         logger.error(f"Ошибка при получении задачи: {e}")
         await message.answer("⚠️ Не удалось получить задачу. Попробуйте позже.")
 
+
 @router.message(lambda message: message.text == "ℹ️ Помощь")
 async def show_help(message: types.Message):
     await message.answer(
@@ -123,85 +136,172 @@ async def show_help(message: types.Message):
     )
 
 
+@router.message(lambda message: message.text == "🔙 Назад")
+async def go_back(message: types.Message, state: FSMContext):
+    """Обработка кнопки Назад"""
+    current_state = await state.get_state()
+
+    if current_state == UserState.choosing_level.state:
+        # Возврат к выбору экзамена
+        await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
+        await state.set_state(UserState.choosing_exam)
+    else:
+        # Возврат в главное меню
+        await state.clear()
+        await message.answer("Выберите действие:", reply_markup=main_menu)
+
+
+@router.message(lambda message: message.text == "📊 Статистика")
+async def show_stats(message: types.Message):
+    """Показ статистики пользователя"""
+    try:
+        stats = get_user_stats(message.from_user.id)
+
+        # Основная статистика
+        total_attempts = stats.get('total_attempts', 0)
+        solved = stats.get('solved', 0)
+        accuracy = (solved / total_attempts * 100) if total_attempts > 0 else 0
+
+        # Формируем текст статистики
+        stats_text = (
+            "📊 *Ваша статистика:*\n\n"
+            f"📝 Всего попыток: {total_attempts}\n"
+            f"✅ Решено задач: {solved}\n"
+            f"📈 Точность: {accuracy:.1f}%"
+        )
+
+        # Добавляем статистику по темам, если она есть
+        if topics := stats.get('topics'):
+            stats_text += "\n\n📚 *По темам:*"
+            for topic, count in topics.items():
+                stats_text += f"\n• {topic}: {count}"
+
+        await message.answer(stats_text, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка при показе статистики: {e}")
+        await message.answer("⚠️ Не удалось загрузить статистику. Попробуйте позже.")
+
+
+def normalize_number(value):
+    """Нормализует числовое значение"""
+    try:
+        # Пробуем преобразовать в float
+        num = float(value)
+        # Если это целое число, возвращаем как int
+        if num.is_integer():
+            return int(num)
+        # Иначе возвращаем float с ограничением знаков после запятой
+        return round(num, 4)
+    except ValueError:
+        return value
+
+
+def check_answers_equality(user_answer, correct_answer, problem_type):
+    """Проверяет равенство ответов с учетом типа задачи"""
+    try:
+        # Для задач с несколькими ответами
+        if ";" in str(correct_answer):
+            user_parts = [p.strip() for p in str(user_answer).split(";")]
+            correct_parts = [p.strip() for p in str(correct_answer).split(";")]
+
+            if len(user_parts) != len(correct_parts):
+                return False
+
+            # Сортируем части для правильного сравнения
+            user_parts = sorted([normalize_number(p) for p in user_parts])
+            correct_parts = sorted([normalize_number(p) for p in correct_parts])
+
+            # Сравниваем каждую пару значений
+            for u, c in zip(user_parts, correct_parts):
+                if not check_single_answer(u, c, problem_type):
+                    return False
+            return True
+
+        # Для задач с одним ответом
+        return check_single_answer(user_answer, correct_answer, problem_type)
+
+    except Exception as e:
+        logger.error(f"Ошибка при сравнении ответов: {e}")
+        return False
+
+
+def check_single_answer(user_value, correct_value, problem_type):
+    """Проверяет равенство одиночных ответов"""
+    try:
+        # Преобразуем строки в числа, если возможно
+        user_num = normalize_number(user_value)
+        correct_num = normalize_number(correct_value)
+
+        # Если оба значения числовые
+        if isinstance(user_num, (int, float)) and isinstance(correct_num, (int, float)):
+            # Устанавливаем допуск в зависимости от типа задачи
+            tolerance = {
+                "Геометрия": 0.1,
+                "Теория вероятностей": 0.01,
+                "Статистика": 0.01
+            }.get(problem_type, 0.01)
+
+            return abs(float(user_num) - float(correct_num)) <= tolerance
+
+        # Если значения не числовые, сравниваем строки
+        return str(user_value).strip().lower() == str(correct_value).strip().lower()
+
+    except Exception as e:
+        logger.error(f"Ошибка при сравнении одиночных ответов: {e}")
+        return False
+
+
 @router.message(UserState.solving_task)
 async def check_answer(message: types.Message, state: FSMContext):
+    # Если пользователь запросил статистику во время решения
+    if message.text == "📊 Статистика":
+        await show_stats(message)
+        return
+
     try:
         data = await state.get_data()
         problem = data.get('current_problem')
         if not problem:
             await message.answer("Сначала запросите задачу через меню!")
             return
-        user_answer = message.text.strip().replace(",", ".").lower()
-        correct_answers = problem['answer'].split("; ")
-        try:
-            user_parts = sorted([float(part.strip()) for part in user_answer.split(";")])
-            correct_parts = sorted([float(part.strip()) for part in correct_answers])
-            is_correct = all(
-                abs(user - correct) < 0.01
-                for user, correct in zip(user_parts, correct_parts)
-            )
-        except ValueError:
-            is_correct = user_answer in correct_answers
+
+        # Нормализуем ответ пользователя
+        user_answer = message.text.strip().replace(',', '.')
+
+        # Проверяем ответ
+        is_correct = check_answers_equality(
+            user_answer,
+            problem['answer'],
+            problem['topic']
+        )
+
+        # Обновляем статистику с учетом правильности ответа
+        update_user_stats(message.from_user.id, is_correct)
 
         if is_correct:
-            update_user_stats(message.from_user.id)
             await message.answer("✅ *Верно!* Молодец! 😊", parse_mode="Markdown")
         else:
             hint_text = (
-                f"❌ *Неверно.* Правильный ответ: `{problem['answer']}`\n\n"
+                f"❌ *Неверно.*\n"
+                f"Ваш ответ: {user_answer}\n"
+                f"Правильный ответ: {problem['answer']}\n\n"
                 f"{problem['hint']}"
             )
             await message.answer(hint_text, parse_mode="Markdown")
 
+        # Показываем статистику после ответа
+        await show_stats(message)
+        # Отправляем следующую задачу
         await send_task(message, state)
 
     except Exception as e:
         logger.error(f"Ошибка при проверке ответа: {e}", exc_info=True)
-        await message.answer("⚠️ Неверный формат ответа. Примеры: 3; 2.5; 1/3")
-@router.message(lambda message: message.text == "📊 Статистика")
-async def show_stats(message: types.Message):
-    stats = get_user_stats(message.from_user.id)
-
-    # Основная статистика
-    total_attempts = stats.get('total_attempts', 0)
-    solved = stats.get('solved', 0)
-    accuracy = (solved / total_attempts * 100) if total_attempts > 0 else 0
-
-    # Статистика по темам
-    topics_stats = stats.get('topics', {})
-    topics_text = "\n".join([
-        f"  • {topic}: {count} задач"
-        for topic, count in topics_stats.items()
-    ]) if topics_stats else "  • Нет решённых задач"
-
-    # Статистика по уровням сложности
-    complexity_stats = stats.get('complexity', {})
-    complexity_text = "\n".join([
-        f"  • {level} уровень: {count} задач"
-        for level, count in sorted(complexity_stats.items())
-    ]) if complexity_stats else "  • Нет решённых задач"
-
-    # Статистика по типам экзаменов
-    exam_stats = stats.get('exam_types', {})
-    exam_text = "\n".join([
-        f"  • {exam_type}: {count} задач"
-        for exam_type, count in exam_stats.items()
-    ]) if exam_stats else "  • Нет решённых задач"
-
-    message_text = f"""
-📊 *Ваша статистика:*
-📝 *Общая статистика:*
-• Всего попыток: {total_attempts}
-• Решено задач: {solved}
-• Процент правильных: {accuracy:.1f}%
-📚 *По темам:*
-{topics_text}
-🎯 *По сложности:*
-{complexity_text}
-📋 *По типам экзаменов:*
-{exam_text}
-"""
-    await message.answer(
-        message_text,
-        parse_mode="Markdown"
-    )
+        await message.answer(
+            "⚠️ Примеры правильного формата ответа:\n"
+            "- Целые числа: 50\n"
+            "- Десятичные дроби: 50.24\n"
+            "- Дроби: 1/2\n"
+            "- Несколько ответов: 2; -5\n"
+            "- Вероятности: 0.5 или 1/2"
+        )
