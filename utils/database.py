@@ -3,13 +3,20 @@ import logging
 from typing import Dict, List, Optional
 import random
 from sqlite3 import Error
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Определяем путь к базе данных
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "data" / "math_problems.db"
 
 
 def get_db():
     """Создает соединение с базой данных"""
-    return sqlite3.connect('math_problems.db')
+    # Создаем директорию data, если её нет
+    DB_PATH.parent.mkdir(exist_ok=True)
+    return sqlite3.connect(DB_PATH)
 
 
 def init_db():
@@ -36,6 +43,49 @@ def init_db():
                 solved INTEGER DEFAULT 0
             )
         ''')
+
+        # Новая таблица для достижений
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS achievements (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                condition_type TEXT NOT NULL,
+                condition_value INTEGER NOT NULL,
+                icon TEXT NOT NULL
+            )
+        ''')
+
+        # Таблица для хранения полученных достижений пользователей
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_achievements (
+                user_id INTEGER,
+                achievement_id INTEGER,
+                obtained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, achievement_id),
+                FOREIGN KEY (achievement_id) REFERENCES achievements (id)
+            )
+        ''')
+
+        # Добавляем базовые достижения, если их нет
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Первые шаги", "Решите первую задачу", "solved", 1, "🎯"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Начинающий математик", "Решите 10 задач", "solved", 10, "🎓"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Опытный решатель", "Решите 50 задач", "solved", 50, "🏆"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Мастер математики", "Решите 100 задач", "solved", 100, "👑"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Точность 80%", "Достигните точности решения 80%", "accuracy", 80, "🎯"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Точность 90%", "Достигните точности решения 90%", "accuracy", 90, "🎯"))
 
 
 def get_random_problem(exam_type: str, level: str) -> Optional[Dict]:
@@ -414,6 +464,85 @@ def get_appropriate_difficulty(user_id: int, topic: str) -> float:
     except Error as e:
         print(f"Ошибка при получении уровня сложности: {e}")
         return 1.0
+
+
+def check_achievements(user_id: int) -> List[Dict]:
+    """Проверяет и возвращает новые достижения пользователя"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            # Получаем статистику пользователя
+            stats = get_user_stats(user_id)
+
+            # Получаем все достижения, которых еще нет у пользователя
+            cursor.execute('''
+                SELECT a.id, a.name, a.description, a.condition_type, a.condition_value, a.icon
+                FROM achievements a
+                LEFT JOIN user_achievements ua ON a.id = ua.achievement_id AND ua.user_id = ?
+                WHERE ua.user_id IS NULL
+            ''', (user_id,))
+
+            new_achievements = []
+            for achievement in cursor.fetchall():
+                aid, name, description, condition_type, condition_value, icon = achievement
+
+                # Проверяем условия достижения
+                if condition_type == "solved" and stats["solved"] >= condition_value:
+                    new_achievements.append({
+                        "name": name,
+                        "description": description,
+                        "icon": icon
+                    })
+                    # Записываем полученное достижение
+                    cursor.execute('''
+                        INSERT INTO user_achievements (user_id, achievement_id)
+                        VALUES (?, ?)
+                    ''', (user_id, aid))
+
+                elif condition_type == "accuracy" and stats["accuracy"] >= condition_value:
+                    new_achievements.append({
+                        "name": name,
+                        "description": description,
+                        "icon": icon
+                    })
+                    # Записываем полученное достижение
+                    cursor.execute('''
+                        INSERT INTO user_achievements (user_id, achievement_id)
+                        VALUES (?, ?)
+                    ''', (user_id, aid))
+
+            conn.commit()
+            return new_achievements
+
+    except Exception as e:
+        logger.error(f"Error checking achievements: {e}")
+        return []
+
+
+def get_user_achievements(user_id: int) -> List[Dict]:
+    """Получает все достижения пользователя"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT a.name, a.description, a.icon, ua.obtained_at
+                FROM achievements a
+                JOIN user_achievements ua ON a.id = ua.achievement_id
+                WHERE ua.user_id = ?
+                ORDER BY ua.obtained_at DESC
+            ''', (user_id,))
+
+            return [{
+                "name": name,
+                "description": desc,
+                "icon": icon,
+                "obtained_at": obtained_at
+            } for name, desc, icon, obtained_at in cursor.fetchall()]
+
+    except Exception as e:
+        logger.error(f"Error getting user achievements: {e}")
+        return []
 
 
 if __name__ == "__main__":

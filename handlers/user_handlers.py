@@ -6,7 +6,9 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from utils.database import (
     get_random_problem,
     update_user_stats,
-    get_user_stats
+    get_user_stats,
+    get_user_achievements,
+    check_achievements
 )
 import logging
 
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🎓 Выбрать экзамен"), KeyboardButton(text="📚 Получить задачу")],
-        [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="ℹ️ Помощь")]
+        [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="ℹ️ Помощь"), KeyboardButton(text="🏆 Достижения")]
     ],
     resize_keyboard=True,
     one_time_keyboard=True  # Скрывать клавиатуру после выбора
@@ -183,6 +185,33 @@ async def show_stats(message: types.Message):
         await message.answer("⚠️ Не удалось загрузить статистику. Попробуйте позже.")
 
 
+@router.message(lambda message: message.text == "🏆 Достижения")
+async def show_achievements(message: types.Message):
+    """Показывает достижения пользователя"""
+    try:
+        achievements = get_user_achievements(message.from_user.id)
+
+        if not achievements:
+            await message.answer(
+                "🏆 У вас пока нет достижений.\n"
+                "Решайте задачи, чтобы получать новые достижения!"
+            )
+            return
+
+        # Формируем текст с достижениями
+        text = "🏆 *Ваши достижения:*\n\n"
+        for ach in achievements:
+            text += f"{ach['icon']} *{ach['name']}*\n"
+            text += f"_{ach['description']}_\n"
+            text += f"Получено: {ach['obtained_at']}\n\n"
+
+        await message.answer(text, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error showing achievements: {e}")
+        await message.answer("Произошла ошибка при загрузке достижений.")
+
+
 def normalize_number(value):
     """Нормализует числовое значение"""
     try:
@@ -294,6 +323,15 @@ async def check_answer(message: types.Message, state: FSMContext):
         await show_stats(message)
         # Отправляем следующую задачу
         await send_task(message, state)
+
+        # После обновления статистики проверяем новые достижения
+        new_achievements = check_achievements(message.from_user.id)
+        if new_achievements:
+            achievements_text = "🎉 *Получены новые достижения:*\n\n"
+            for ach in new_achievements:
+                achievements_text += f"{ach['icon']} *{ach['name']}*\n"
+                achievements_text += f"_{ach['description']}_\n\n"
+            await message.answer(achievements_text, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Ошибка при проверке ответа: {e}", exc_info=True)
