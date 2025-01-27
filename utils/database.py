@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 import random
 from sqlite3 import Error
 from pathlib import Path
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS user_stats (
                 user_id INTEGER PRIMARY KEY,
                 total_attempts INTEGER DEFAULT 0,
-                solved INTEGER DEFAULT 0
+                solved INTEGER DEFAULT 0,
+                xp INTEGER DEFAULT 0
             )
         ''')
 
@@ -154,69 +156,90 @@ def add_bulk_problems(problems: List[Dict]):
         logger.error(f"Error adding problems: {e}")
 
 
-def update_user_stats(user_id: int, is_correct: bool):
-    """Обновляет статистику пользователя
+def get_user_level(solved: int, accuracy: float) -> dict:
+    """Определяет уровень и звание пользователя"""
 
-    Args:
-        user_id (int): ID пользователя
-        is_correct (bool): Правильный ли ответ
-    """
+    # Базовые очки опыта
+    xp = solved * 10
+
+    # Бонус за точность
+    if accuracy >= 90:
+        xp *= 1.5
+    elif accuracy >= 80:
+        xp *= 1.3
+    elif accuracy >= 70:
+        xp *= 1.2
+
+    # Определение уровня (каждый следующий уровень требует на 20% больше опыта)
+    level = int(math.log(xp / 100 + 1, 1.2)) + 1 if xp > 0 else 1
+
+    # Звания в зависимости от уровня и точности
+    ranks = {
+        (1, 0): "🌱 Новичок",
+        (3, 0): "📚 Ученик",
+        (5, 70): "🎯 Практик",
+        (8, 75): "💫 Знаток",
+        (12, 80): "🏆 Мастер",
+        (15, 85): "👑 Гроссмейстер",
+        (20, 90): "⭐ Легенда",
+        (25, 95): "🌟 Профессор"
+    }
+
+    current_rank = "🌱 Новичок"
+    for (req_level, req_accuracy), rank in sorted(ranks.items()):
+        if level >= req_level and accuracy >= req_accuracy:
+            current_rank = rank
+
+    # Расчет прогресса до следующего уровня
+    next_level_xp = 100 * (1.2 ** (level - 1))
+    current_level_xp = 100 * (1.2 ** (level - 2)) if level > 1 else 0
+    progress = int((xp - current_level_xp) / (next_level_xp - current_level_xp) * 100)
+
+    return {
+        "level": level,
+        "rank": current_rank,
+        "xp": int(xp),
+        "next_level_xp": int(next_level_xp),
+        "progress": progress
+    }
+
+
+def update_user_stats(user_id: int, is_correct: bool) -> None:
     try:
         with get_db() as conn:
             cursor = conn.cursor()
-            # Создаем запись для пользователя, если её нет
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO user_stats (user_id, total_attempts, solved)
-                VALUES (?, 0, 0)
+                INSERT INTO user_stats (user_id, total_attempts, solved)
+                VALUES (?, 1, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    total_attempts = total_attempts + 1,
+                    solved = solved + ?
                 """,
-                (user_id,)
+                (user_id, 1 if is_correct else 0, 1 if is_correct else 0)
             )
 
-            # Обновляем статистику в зависимости от правильности ответа
+            # Обновляем XP пользователя
             if is_correct:
                 cursor.execute(
                     """
-                    UPDATE user_stats
-                    SET total_attempts = total_attempts + 1,
-                        solved = solved + 1
+                    UPDATE user_stats 
+                    SET xp = xp + ? 
                     WHERE user_id = ?
                     """,
-                    (user_id,)
+                    (10, user_id)
                 )
-            else:
-                cursor.execute(
-                    """
-                    UPDATE user_stats
-                    SET total_attempts = total_attempts + 1
-                    WHERE user_id = ?
-                    """,
-                    (user_id,)
-                )
-
-            conn.commit()
-            logger.info(f"Updated stats for user {user_id}: correct={is_correct}")
     except Exception as e:
         logger.error(f"Error updating user stats: {e}")
 
 
 def get_user_stats(user_id: int) -> Dict:
-    """Получает статистику пользователя"""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
-            # Создаем запись для пользователя, если её нет
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO user_stats (user_id, total_attempts, solved)
-                VALUES (?, 0, 0)
-                """,
-                (user_id,)
-            )
-
-            cursor.execute(
-                """
-                SELECT total_attempts, solved
+                SELECT total_attempts, solved, xp
                 FROM user_stats
                 WHERE user_id = ?
                 """,
@@ -225,23 +248,41 @@ def get_user_stats(user_id: int) -> Dict:
             result = cursor.fetchone()
 
             if result:
-                total_attempts, solved = result
+                total_attempts, solved, xp = result
+                accuracy = round((solved / total_attempts * 100) if total_attempts > 0 else 0, 1)
+                level_info = get_user_level(solved, accuracy)
+
                 return {
                     "total_attempts": total_attempts,
                     "solved": solved,
-                    "accuracy": round((solved / total_attempts * 100) if total_attempts > 0 else 0, 1)
+                    "accuracy": accuracy,
+                    "xp": xp,
+                    "level": level_info["level"],
+                    "rank": level_info["rank"],
+                    "next_level_xp": level_info["next_level_xp"],
+                    "progress": level_info["progress"]
                 }
             return {
                 "total_attempts": 0,
                 "solved": 0,
-                "accuracy": 0.0
+                "accuracy": 0.0,
+                "xp": 0,
+                "level": 1,
+                "rank": "🌱 Новичок",
+                "next_level_xp": 100,
+                "progress": 0
             }
     except Exception as e:
         logger.error(f"Error getting user stats: {e}")
         return {
             "total_attempts": 0,
             "solved": 0,
-            "accuracy": 0.0
+            "accuracy": 0.0,
+            "xp": 0,
+            "level": 1,
+            "rank": "🌱 Новичок",
+            "next_level_xp": 100,
+            "progress": 0
         }
 
 
