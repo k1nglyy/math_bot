@@ -8,7 +8,8 @@ from utils.database import (
     update_user_stats,
     get_user_stats,
     get_user_achievements,
-    check_achievements
+    check_achievements,
+    get_adaptive_problem
 )
 import logging
 from datetime import datetime
@@ -231,7 +232,7 @@ async def send_task(message: types.Message, state: FSMContext):
         data = await state.get_data()
         exam_type = data.get('exam_type')
         level = data.get('level')
-        last_topic = data.get('last_topic')  # Получаем тему предыдущей задачи
+        last_topic = data.get('last_topic')
 
         if not exam_type or not level:
             await message.answer(
@@ -242,7 +243,10 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        problem = get_random_problem(exam_type, level, last_topic)
+        # Получаем статистику пользователя для адаптивной сложности
+        user_stats = get_user_stats(message.from_user.id)
+        problem = get_adaptive_problem(exam_type, level, last_topic, user_stats)
+
         if not problem:
             await message.answer(
                 "😔 *Извините, не удалось найти подходящую задачу.*\n\n"
@@ -252,13 +256,28 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        # Сохраняем текущую тему для следующего запроса
         await state.update_data(last_topic=problem['topic'])
         await state.update_data(current_problem=problem)
 
+        # Добавляем адаптивное сообщение о сложности
+        difficulty_messages = {
+            1: "Это базовая задача для отработки основных навыков",
+            2: "Задача среднего уровня - проверьте свои знания",
+            3: "Это сложная задача - настоящий вызов!"
+        }
+
+        accuracy = user_stats.get('accuracy', 0)
+        encouragement = ""
+        if problem['complexity'] > 1 and accuracy >= 70:
+            encouragement = "\n💪 Ваша успеваемость позволяет решать более сложные задачи!"
+        elif problem['complexity'] == 1 and accuracy < 50:
+            encouragement = "\n📚 Начните с базовых задач, чтобы укрепить фундамент!"
+
         task_message = (
             f"{problem['topic']} ({exam_type}, {level})\n"
-            f"Сложность: {'⭐' * problem['complexity']}\n\n"
+            f"Сложность: {'⭐' * problem['complexity']}\n"
+            f"_{difficulty_messages[problem['complexity']]}_"
+            f"{encouragement}\n\n"
             f"{problem['text']}\n\n"
             f"✏️ Введите ответ:"
         )

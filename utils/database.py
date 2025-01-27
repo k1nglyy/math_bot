@@ -560,6 +560,87 @@ def get_user_achievements(user_id: int) -> List[Dict]:
         return []
 
 
+def get_adaptive_problem(exam_type: str, level: str, last_topic: str = None, user_stats: dict = None) -> Optional[Dict]:
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            # Определяем оптимальную сложность на основе статистики
+            if user_stats and user_stats['total_attempts'] > 0:
+                accuracy = user_stats['accuracy']
+                solved = user_stats['solved']
+
+                # Адаптивная логика сложности с учетом количества решенных задач
+                if exam_type == "ЕГЭ" and level == "профиль":
+                    if solved < 3:  # Первые 3 задачи
+                        target_complexity = 1
+                    elif accuracy >= 80 and solved >= 3:
+                        target_complexity = random.choice([2, 3])  # Чередуем сложные и средние
+                    elif accuracy >= 60:
+                        target_complexity = 2
+                    else:
+                        target_complexity = 1
+
+                elif exam_type == "ЕГЭ" and level == "база":
+                    if solved < 3:  # Первые 3 задачи
+                        target_complexity = 1
+                    elif accuracy >= 85 and solved >= 3:
+                        target_complexity = 2
+                    elif accuracy >= 70:
+                        target_complexity = random.choice([1, 2])
+                    else:
+                        target_complexity = 1
+
+                else:  # ОГЭ
+                    if solved < 3:  # Первые 3 задачи
+                        target_complexity = 1
+                    elif accuracy >= 80 and solved >= 3:
+                        target_complexity = 2
+                    else:
+                        target_complexity = 1
+            else:
+                target_complexity = 1
+
+            # Логика выбора задачи
+            query_params = [exam_type, level]
+            base_query = """
+                SELECT topic, text, answer, hint, complexity
+                FROM problems
+                WHERE exam_type = ? 
+                AND level = ?
+            """
+
+            if last_topic:
+                base_query += " AND topic != ?"
+                query_params.append(last_topic)
+
+            # Сначала пытаемся найти задачу нужной сложности
+            full_query = base_query + " AND complexity = ? ORDER BY RANDOM() LIMIT 1"
+            query_params.append(target_complexity)
+
+            cursor.execute(full_query, query_params)
+            result = cursor.fetchone()
+
+            # Если не нашли задачу нужной сложности, берем любую подходящую
+            if not result:
+                cursor.execute(base_query + " ORDER BY RANDOM() LIMIT 1", query_params[:-1])
+                result = cursor.fetchone()
+
+            if result:
+                return {
+                    "topic": result[0],
+                    "text": result[1],
+                    "answer": result[2],
+                    "hint": result[3],
+                    "complexity": result[4]
+                }
+            return None
+
+    except Exception as e:
+        logger.error(f"Error getting adaptive problem: {e}")
+        return None
+
+
 if __name__ == "__main__":
     create_tables()
     add_sample_problems()
