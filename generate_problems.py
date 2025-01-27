@@ -51,6 +51,55 @@ def generate_nice_quadratic(exam_type: str, level: str) -> dict:
     }
 
 
+def generate_linear_equation(exam_type: str, level: str) -> dict:
+    x = random.randint(-10, 10)
+    a = random.randint(2, 5)
+    b = a * x
+
+    equation = f"{a}x = {b}"
+
+    hint = (
+        f"1) Перенесите все в одну сторону: {a}x - {b} = 0\n"
+        f"2) Разделите обе части на {a}\n"
+        f"3) x = {x}"
+    )
+
+    return {
+        "topic": "Алгебра",
+        "text": f"Решите линейное уравнение: {equation}",
+        "answer": str(x),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": 1,
+        "hint": hint
+    }
+
+
+def generate_progression_problem(exam_type: str, level: str) -> dict:
+    start = random.randint(1, 10)
+    diff = random.randint(2, 5)
+    length = 5
+
+    sequence = [start + i * diff for i in range(length)]
+    missing_idx = random.randint(1, length - 2)
+    answer = sequence[missing_idx]
+    sequence[missing_idx] = "..."
+
+    return {
+        "topic": "Алгебра",
+        "text": (
+            "В арифметической прогрессии пропущено число:\n"
+            f"{', '.join(map(str, sequence))}\n"
+            "Найдите это число."
+        ),
+        "answer": str(answer),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": 2,
+        "hint": f"Разность прогрессии равна {diff}"
+    }
+
+
 def generate_circle_problem(exam_type: str, level: str) -> dict:
     """Генерирует задачу на площадь круга с π = 3.14"""
     r = random.randint(1, 10)
@@ -75,20 +124,64 @@ def generate_circle_problem(exam_type: str, level: str) -> dict:
     }
 
 
-def generate_probability_problem(exam_type: str, level: str) -> dict:
-    """Генерирует задачу по теории вероятностей"""
-    numerator = random.randint(1, 5)
-    denominator = random.randint(6, 10)
-    probability = round(numerator / denominator, 2)
+def generate_triangle_problem(exam_type: str, level: str) -> dict:
+    a = random.randint(3, 10)
+    h = random.randint(2, 8)
+    area = round(0.5 * a * h, 1)
+
+    return {
+        "topic": "Геометрия",
+        "text": (
+            f"В треугольнике основание равно {a} см, "
+            f"а высота, проведенная к этому основанию, равна {h} см. "
+            "Найдите площадь треугольника."
+        ),
+        "answer": str(area),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": 2,
+        "hint": "S = ½ · a · h"
+    }
+
+
+def generate_rectangle_problem(exam_type: str, level: str) -> dict:
+    a = random.randint(3, 10)
+    b = random.randint(3, 10)
+    perimeter = 2 * (a + b)
+
+    return {
+        "topic": "Геометрия",
+        "text": (
+            f"Длина прямоугольника {a} см, ширина {b} см. "
+            "Найдите периметр прямоугольника."
+        ),
+        "answer": str(perimeter),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": 1,
+        "hint": "P = 2(a + b)"
+    }
+
+
+def generate_probability_simple(exam_type: str, level: str) -> dict:
+    total = random.randint(4, 10)
+    favorable = random.randint(1, total - 1)
+    probability = round(favorable / total, 2)
+
+    variants = [
+        f"В урне {total} шаров, из них {favorable} красных. Найдите вероятность достать красный шар.",
+        f"В группе {total} студентов, из них {favorable} отличников. Какова вероятность случайно выбрать отличника?",
+        f"Из {total} карточек с цифрами {favorable} четных. Найдите вероятность вытащить четную цифру."
+    ]
 
     return {
         "topic": "Теория вероятностей",
-        "text": f"Вероятность события A равна {probability}. Найдите вероятность противоположного события.",
-        "answer": str(round(1 - probability, 2)),
+        "text": random.choice(variants),
+        "answer": str(probability),
         "exam_type": exam_type,
         "level": level,
-        "complexity": random.randint(1, 3),
-        "hint": "Вероятность противоположного события = 1 - P(A)"
+        "complexity": 2,
+        "hint": f"Вероятность = {favorable}/{total}"
     }
 
 
@@ -165,25 +258,22 @@ def generate_problems():
     for exam_type in ["ЕГЭ", "ОГЭ"]:
         levels = ["база", "профиль"] if exam_type == "ЕГЭ" else ["база"]
         for level in levels:
-            # Квадратные уравнения
-            for _ in range(TASKS_PER_CATEGORY):
-                problem = generate_nice_quadratic(exam_type, level)
-                problems.append(problem)
+            # Алгебра
+            for _ in range(TASKS_PER_CATEGORY // 3):
+                problems.append(generate_nice_quadratic(exam_type, level))
+                problems.append(generate_linear_equation(exam_type, level))
+                problems.append(generate_progression_problem(exam_type, level))
 
-            # Задачи по геометрии
-            for _ in range(TASKS_PER_CATEGORY):
-                problem = generate_circle_problem(exam_type, level)
-                problems.append(problem)
+            # Геометрия
+            for _ in range(TASKS_PER_CATEGORY // 3):
+                problems.append(generate_circle_problem(exam_type, level))
+                problems.append(generate_triangle_problem(exam_type, level))
+                problems.append(generate_rectangle_problem(exam_type, level))
 
-            # Задачи по теории вероятностей
-            for _ in range(TASKS_PER_CATEGORY):
-                problem = generate_probability_problem(exam_type, level)
-                problems.append(problem)
-
-            # Задачи по статистике
-            for _ in range(TASKS_PER_CATEGORY):
-                problem = generate_statistics_problem(exam_type, level)
-                problems.append(problem)
+            # Теория вероятностей и статистика
+            for _ in range(TASKS_PER_CATEGORY // 2):
+                problems.append(generate_probability_simple(exam_type, level))
+                problems.append(generate_statistics_problem(exam_type, level))
 
     # Добавляем все задачи в базу данных
     add_bulk_problems(problems)

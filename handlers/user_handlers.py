@@ -23,7 +23,7 @@ main_menu = ReplyKeyboardMarkup(
         [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="ℹ️ Помощь"), KeyboardButton(text="🏆 Достижения")]
     ],
     resize_keyboard=True,
-    one_time_keyboard=True
+    one_time_keyboard=True  # Скрывать клавиатуру после выбора
 )
 
 exam_menu = ReplyKeyboardMarkup(
@@ -50,6 +50,7 @@ class UserState(StatesGroup):
 
 
 async def format_task_message(problem: dict) -> str:
+    """Форматирует сообщение с задачей"""
     topic_icons = {
         "Алгебра": "📐",
         "Геометрия": "📏",
@@ -70,6 +71,7 @@ async def format_task_message(problem: dict) -> str:
 
 
 async def format_stats_message(stats: dict) -> str:
+    """Форматирует сообщение со статистикой"""
     accuracy = stats.get("accuracy", 0)
     accuracy_icon = "🎯" if accuracy >= 90 else "🎪" if accuracy >= 70 else "🎱"
 
@@ -84,6 +86,7 @@ async def format_stats_message(stats: dict) -> str:
 
 
 async def format_achievements_message(achievements: List[Dict]) -> str:
+    """Форматирует сообщение с достижениями"""
     if not achievements:
         return (
             "🏆 *Достижения*\n\n"
@@ -160,7 +163,8 @@ async def send_task(message: types.Message, state: FSMContext):
             await message.answer(
                 "⚠️ *Сначала выберите тип экзамена!*\n\n"
                 "Нажмите '🎓 Выбрать экзамен'",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=main_menu
             )
             return
 
@@ -169,20 +173,27 @@ async def send_task(message: types.Message, state: FSMContext):
             await message.answer(
                 "😔 *Извините, не удалось найти подходящую задачу.*\n\n"
                 "Попробуйте выбрать другой тип экзамена.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=main_menu
             )
             return
 
         await state.update_data(current_problem=problem)
-        task_message = await format_task_message(problem)
-        await message.answer(task_message, parse_mode="Markdown")
+        task_message = (
+            f"{problem['topic']} ({exam_type}, {level})\n"
+            f"Сложность: {'⭐' * problem['complexity']}\n\n"
+            f"{problem['text']}\n\n"
+            f"✏️ Введите ответ:"
+        )
+        await message.answer(task_message, parse_mode="Markdown", reply_markup=main_menu)
 
     except Exception as e:
         logger.error(f"Error sending task: {e}")
         await message.answer(
             "😔 *Произошла ошибка*\n\n"
             "Попробуйте получить задачу еще раз.",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=main_menu
         )
 
 
@@ -206,6 +217,7 @@ async def show_help(message: types.Message):
 
 @router.message(lambda message: message.text == "🔙 Назад")
 async def go_back(message: types.Message, state: FSMContext):
+    """Обработка кнопки Назад"""
     current_state = await state.get_state()
 
     if current_state == UserState.choosing_level.state:
@@ -220,6 +232,7 @@ async def go_back(message: types.Message, state: FSMContext):
 
 @router.message(lambda message: message.text == "📊 Статистика")
 async def show_stats(message: types.Message):
+    """Показ статистики пользователя"""
     try:
         stats = get_user_stats(message.from_user.id)
         stats_message = await format_stats_message(stats)
@@ -232,6 +245,7 @@ async def show_stats(message: types.Message):
 
 @router.message(lambda message: message.text == "🏆 Достижения")
 async def show_achievements(message: types.Message):
+    """Показывает достижения пользователя"""
     try:
         achievements = get_user_achievements(message.from_user.id)
         achievements_message = await format_achievements_message(achievements)
@@ -247,29 +261,41 @@ async def show_achievements(message: types.Message):
 
 
 def normalize_number(value):
+    """Нормализует числовое значение"""
     try:
+        # Пробуем преобразовать в float
         num = float(value)
+        # Если это целое число, возвращаем как int
         if num.is_integer():
             return int(num)
+        # Иначе возвращаем float с ограничением знаков после запятой
         return round(num, 4)
     except ValueError:
         return value
 
 
 def check_answers_equality(user_answer, correct_answer, problem_type):
+    """Проверяет равенство ответов с учетом типа задачи"""
     try:
+        # Для задач с несколькими ответами
         if ";" in str(correct_answer):
             user_parts = [p.strip() for p in str(user_answer).split(";")]
             correct_parts = [p.strip() for p in str(correct_answer).split(";")]
 
             if len(user_parts) != len(correct_parts):
                 return False
+
+            # Сортируем части для правильного сравнения
             user_parts = sorted([normalize_number(p) for p in user_parts])
             correct_parts = sorted([normalize_number(p) for p in correct_parts])
+
+            # Сравниваем каждую пару значений
             for u, c in zip(user_parts, correct_parts):
                 if not check_single_answer(u, c, problem_type):
                     return False
             return True
+
+        # Для задач с одним ответом
         return check_single_answer(user_answer, correct_answer, problem_type)
 
     except Exception as e:
@@ -278,10 +304,15 @@ def check_answers_equality(user_answer, correct_answer, problem_type):
 
 
 def check_single_answer(user_value, correct_value, problem_type):
+    """Проверяет равенство одиночных ответов"""
     try:
+        # Преобразуем строки в числа, если возможно
         user_num = normalize_number(user_value)
         correct_num = normalize_number(correct_value)
+
+        # Если оба значения числовые
         if isinstance(user_num, (int, float)) and isinstance(correct_num, (int, float)):
+            # Устанавливаем допуск в зависимости от типа задачи
             tolerance = {
                 "Геометрия": 0.1,
                 "Теория вероятностей": 0.01,
@@ -289,7 +320,10 @@ def check_single_answer(user_value, correct_value, problem_type):
             }.get(problem_type, 0.01)
 
             return abs(float(user_num) - float(correct_num)) <= tolerance
+
+        # Если значения не числовые, сравниваем строки
         return str(user_value).strip().lower() == str(correct_value).strip().lower()
+
     except Exception as e:
         logger.error(f"Ошибка при сравнении одиночных ответов: {e}")
         return False
@@ -298,9 +332,7 @@ def check_single_answer(user_value, correct_value, problem_type):
 @router.message(UserState.solving_task)
 async def check_answer(message: types.Message, state: FSMContext):
     if message.text == "📊 Статистика":
-        stats = get_user_stats(message.from_user.id)
-        stats_message = await format_stats_message(stats)
-        await message.answer(stats_message, parse_mode="Markdown")
+        await show_stats(message)
         return
 
     try:
@@ -310,7 +342,8 @@ async def check_answer(message: types.Message, state: FSMContext):
             await message.answer(
                 "⚠️ *Сначала запросите задачу!*\n\n"
                 "Нажмите '📚 Получить задачу'",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=main_menu
             )
             return
 
@@ -322,7 +355,8 @@ async def check_answer(message: types.Message, state: FSMContext):
             await message.answer(
                 "✨ *Отлично!* Правильный ответ! 🎉\n\n"
                 "_Так держать!_",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=main_menu
             )
         else:
             hint_text = (
@@ -331,7 +365,8 @@ async def check_answer(message: types.Message, state: FSMContext):
                 f"Правильный ответ: `{problem['answer']}`\n\n"
                 f"💡 *Подсказка:*\n{problem['hint']}"
             )
-            await message.answer(hint_text, parse_mode="Markdown")
+            await message.answer(hint_text, parse_mode="Markdown", reply_markup=main_menu)
+
         new_achievements = check_achievements(message.from_user.id)
         if new_achievements:
             achievements_text = (
@@ -340,11 +375,11 @@ async def check_answer(message: types.Message, state: FSMContext):
             )
             for ach in new_achievements:
                 achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
-            await message.answer(achievements_text, parse_mode="Markdown")
-        stats = get_user_stats(message.from_user.id)
-        stats_message = await format_stats_message(stats)
-        await message.answer(stats_message, parse_mode="Markdown")
+            await message.answer(achievements_text, parse_mode="Markdown", reply_markup=main_menu)
+
+        await show_stats(message)
         await send_task(message, state)
+
     except Exception as e:
         logger.error(f"Error checking answer: {e}")
         await message.answer(
@@ -354,5 +389,6 @@ async def check_answer(message: types.Message, state: FSMContext):
             "🔹 Дроби: `1/2`\n"
             "🔹 Несколько ответов: `2; -5`\n"
             "🔹 Вероятности: `0.5` или `1/2`",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=main_menu
         )
