@@ -13,6 +13,7 @@ from utils.database import (
 import logging
 from datetime import datetime
 from typing import List, Dict
+import random
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -71,18 +72,90 @@ async def format_task_message(problem: dict) -> str:
 
 
 async def format_stats_message(stats: dict) -> str:
-    """Форматирует сообщение со статистикой"""
-    accuracy = stats.get("accuracy", 0)
-    accuracy_icon = "🎯" if accuracy >= 90 else "🎪" if accuracy >= 70 else "🎱"
+    """Форматирует сообщение статистики с адаптивными сообщениями"""
+    total_attempts = stats['total_attempts']
+    solved = stats['solved']
+    accuracy = stats['accuracy']
 
-    message = (
+    # Определяем иконку в зависимости от точности
+    if accuracy >= 90:
+        accuracy_icon = "🎯"
+        level = "excellent"
+    elif accuracy >= 70:
+        accuracy_icon = "🎪"
+        level = "good"
+    elif accuracy >= 50:
+        accuracy_icon = "🎱"
+        level = "average"
+    else:
+        accuracy_icon = "🎲"
+        level = "low"
+
+    # Мотивационные сообщения в зависимости от уровня
+    motivation_messages = {
+        "excellent": [
+            "Потрясающий результат! Так держать! 🌟",
+            "Вы настоящий математический гений! ✨",
+            "Великолепная работа! Продолжайте в том же духе! 🏆",
+            "Ваша точность впечатляет! 🎯"
+        ],
+        "good": [
+            "Хороший результат! Вы на верном пути! 🌟",
+            "Отличная работа! Есть куда расти! 💪",
+            "Вы делаете успехи! Продолжайте практиковаться! 📈",
+            "Неплохой результат! Двигайтесь дальше! 🎯"
+        ],
+        "average": [
+            "Неплохое начало! Регулярная практика поможет улучшить результат! 💪",
+            "Есть пространство для роста! Не сдавайтесь! 🌱",
+            "Продолжайте тренироваться, и результат обязательно улучшится! 📚",
+            "С каждой решённой задачей вы становитесь сильнее! 💡"
+        ],
+        "low": [
+            "Главное - не сдаваться! Каждая решённая задача - это шаг вперёд! 🌱",
+            "Начало положено! Регулярные тренировки помогут улучшить результат! 💪",
+            "Не переживайте! Математика требует времени и практики! 📚",
+            "Пробуйте разные задачи и учитесь на ошибках! 💡"
+        ]
+    }
+
+    # Рекомендации в зависимости от количества решенных задач
+    if total_attempts < 10:
+        recommendation = "💡 Попробуйте решить больше задач, чтобы увидеть свой реальный уровень!"
+    elif accuracy < 50:
+        recommendation = "💡 Обратите внимание на подсказки после неверных ответов, они помогут улучшить результат!"
+    elif accuracy < 70:
+        recommendation = "💡 Попробуйте решать задачи разных типов, чтобы расширить свои знания!"
+    elif accuracy < 90:
+        recommendation = "💡 Вы почти достигли мастерства! Осталось совсем немного!"
+    else:
+        recommendation = "💡 Попробуйте более сложные задачи, чтобы продолжить развитие!"
+
+    # Прогресс до следующего уровня точности
+    next_level = None
+    if accuracy < 50:
+        next_level = 50
+    elif accuracy < 70:
+        next_level = 70
+    elif accuracy < 90:
+        next_level = 90
+
+    progress_message = ""
+    if next_level:
+        points_needed = next_level - accuracy
+        progress_message = f"\n📊 До следующего уровня: {points_needed:.1f}%"
+
+    stats_message = (
         f"📊 *Ваша статистика:*\n\n"
-        f"📝 Всего попыток: `{stats['total_attempts']}`\n"
-        f"✅ Решено задач: `{stats['solved']}`\n"
-        f"{accuracy_icon} Точность: `{accuracy}%`\n\n"
-        f"💫 Продолжайте в том же духе!"
+        f"📝 Всего попыток: `{total_attempts}`\n"
+        f"✅ Решено задач: `{solved}`\n"
+        f"{accuracy_icon} Точность: `{accuracy}%`"
+        f"{progress_message}\n\n"
+        f"_{random.choice(motivation_messages[level])}_\n\n"
+        f"{recommendation}"
     )
-    return message
+
+    return stats_message
 
 
 async def format_achievements_message(achievements: List[Dict]) -> str:
@@ -158,6 +231,7 @@ async def send_task(message: types.Message, state: FSMContext):
         data = await state.get_data()
         exam_type = data.get('exam_type')
         level = data.get('level')
+        last_topic = data.get('last_topic')  # Получаем тему предыдущей задачи
 
         if not exam_type or not level:
             await message.answer(
@@ -168,7 +242,7 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        problem = get_random_problem(exam_type, level)
+        problem = get_random_problem(exam_type, level, last_topic)
         if not problem:
             await message.answer(
                 "😔 *Извините, не удалось найти подходящую задачу.*\n\n"
@@ -178,7 +252,10 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
+        # Сохраняем текущую тему для следующего запроса
+        await state.update_data(last_topic=problem['topic'])
         await state.update_data(current_problem=problem)
+
         task_message = (
             f"{problem['topic']} ({exam_type}, {level})\n"
             f"Сложность: {'⭐' * problem['complexity']}\n\n"
@@ -232,15 +309,9 @@ async def go_back(message: types.Message, state: FSMContext):
 
 @router.message(lambda message: message.text == "📊 Статистика")
 async def show_stats(message: types.Message):
-    """Показ статистики пользователя"""
-    try:
-        stats = get_user_stats(message.from_user.id)
-        stats_message = await format_stats_message(stats)
-        await message.answer(stats_message, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Ошибка при показе статистики: {e}")
-        await message.answer("⚠️ Не удалось загрузить статистику. Попробуйте позже.")
+    stats = get_user_stats(message.from_user.id)
+    stats_message = await format_stats_message(stats)
+    await message.answer(stats_message, parse_mode="Markdown", reply_markup=main_menu)
 
 
 @router.message(lambda message: message.text == "🏆 Достижения")

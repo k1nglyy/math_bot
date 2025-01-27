@@ -88,21 +88,39 @@ def init_db():
             ("Точность 90%", "Достигните точности решения 90%", "accuracy", 90, "🎯"))
 
 
-def get_random_problem(exam_type: str, level: str) -> Optional[Dict]:
-    """Получает случайную задачу из базы данных"""
+def get_random_problem(exam_type: str, level: str, last_topic: str = None) -> Optional[Dict]:
     try:
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT topic, text, answer, hint, complexity
-                FROM problems
-                WHERE exam_type = ? AND level = ?
-                ORDER BY RANDOM()
-                LIMIT 1
-                """,
-                (exam_type, level.lower())
-            )
+
+            if last_topic:
+                # Выбираем задачу с другой темой
+                cursor.execute(
+                    """
+                    SELECT topic, text, answer, hint, complexity
+                    FROM problems
+                    WHERE exam_type = ? 
+                    AND level = ?
+                    AND topic != ?
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                    """,
+                    (exam_type, level, last_topic)
+                )
+            else:
+                # Если это первая задача, выбираем любую
+                cursor.execute(
+                    """
+                    SELECT topic, text, answer, hint, complexity
+                    FROM problems
+                    WHERE exam_type = ? 
+                    AND level = ?
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                    """,
+                    (exam_type, level)
+                )
+
             result = cursor.fetchone()
 
             if result:
@@ -111,11 +129,8 @@ def get_random_problem(exam_type: str, level: str) -> Optional[Dict]:
                     "text": result[1],
                     "answer": result[2],
                     "hint": result[3],
-                    "exam_type": exam_type,
-                    "level": level,
                     "complexity": result[4]
                 }
-            logger.warning(f"No problems found for {exam_type} {level}")
             return None
     except Exception as e:
         logger.error(f"Error getting random problem: {e}")
