@@ -37,7 +37,6 @@ def init_db():
                     topic TEXT NOT NULL,
                     text TEXT NOT NULL,
                     answer TEXT NOT NULL,
-                    answer_type TEXT DEFAULT 'string',
                     exam_type TEXT NOT NULL,
                     level TEXT NOT NULL,
                     complexity INTEGER DEFAULT 2,
@@ -66,28 +65,20 @@ def init_db():
         raise
 
 
-def get_problem(exam_type: str, level: str, topic: Optional[str] = None) -> Optional[Dict]:
-    """Получает случайную задачу с заданными параметрами"""
+def get_problem(exam_type: str, level: str) -> Optional[Dict]:
+    """Получает случайную задачу из базы данных"""
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
             
-            # Формируем запрос с учетом темы
-            query = """
-                SELECT id, topic, text, answer, answer_type,
-                       exam_type, level, complexity, hint, solution
+            cursor.execute("""
+                SELECT id, topic, text, answer, complexity, hint, solution
                 FROM problems
                 WHERE exam_type = ? AND level = ?
-            """
-            params = [exam_type, level]
+                ORDER BY RANDOM()
+                LIMIT 1
+            """, (exam_type, level))
             
-            if topic:
-                query += " AND topic = ?"
-                params.append(topic)
-                
-            query += " ORDER BY RANDOM() LIMIT 1"
-            
-            cursor.execute(query, params)
             result = cursor.fetchone()
             
             if result:
@@ -96,12 +87,9 @@ def get_problem(exam_type: str, level: str, topic: Optional[str] = None) -> Opti
                     'topic': result[1],
                     'text': result[2],
                     'answer': result[3],
-                    'answer_type': result[4],
-                    'exam_type': result[5],
-                    'level': result[6],
-                    'complexity': result[7],
-                    'hint': result[8],
-                    'solution': result[9]
+                    'complexity': result[4],
+                    'hint': result[5],
+                    'solution': result[6]
                 }
             return None
             
@@ -122,7 +110,6 @@ def add_bulk_problems(problems: List[Dict]):
                     problem.get('topic', ''),
                     problem.get('text', ''),
                     str(problem.get('answer', '')),
-                    problem.get('answer_type', 'string'),
                     problem.get('exam_type', ''),
                     problem.get('level', ''),
                     problem.get('complexity', 2),
@@ -135,10 +122,10 @@ def add_bulk_problems(problems: List[Dict]):
             # Вставляем данные
             cursor.executemany("""
                 INSERT INTO problems (
-                    topic, text, answer, answer_type,
-                    exam_type, level, complexity, hint, solution
+                    topic, text, answer, exam_type,
+                    level, complexity, hint, solution
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, values)
             
             conn.commit()
