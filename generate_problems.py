@@ -266,15 +266,14 @@ def generate_basic_exponential(exam_type: str, level: str) -> dict:
     hint = (
         f"1) Используйте определение логарифма\n"
         f"2) x = log_{base}({result})\n"
-        f"3) Так как {base}^{power} = {result}\n"
-        f"4) x = {power}"
+        f"3) {base}^x = {result}, значит x = {power}, так как {base}^{power} = {result}"
     )
 
     return {
         "topic": "Показательные уравнения",
-        "text": f"Решите уравнение: {equation}",
+        "text": f"Решите уравнение: {equation}\n\nПодсказка: найдите такое число x, при котором {base} в степени x даёт {result}",
         "answer": str(power),
-        "answer_type": "integer",  # тип ответа - целое число
+        "answer_type": "integer",
         "exam_type": exam_type,
         "level": level,
         "complexity": 1,
@@ -382,6 +381,9 @@ def check_answer(problem: dict, user_answer: str) -> bool:
     """Проверяет ответ пользователя с учетом типа ответа"""
     answer_type = problem.get("answer_type", "string")
     
+    # Очищаем ответ пользователя от пробелов
+    user_answer = user_answer.strip()
+    
     if answer_type == "integer":
         try:
             return int(user_answer) == int(problem["answer"])
@@ -430,7 +432,7 @@ def check_answer(problem: dict, user_answer: str) -> bool:
         return False
             
     # Для остальных типов - строгое строковое сравнение
-    return user_answer.strip() == problem["answer"].strip()
+    return user_answer == problem["answer"]
 
 
 if __name__ == "__main__":
