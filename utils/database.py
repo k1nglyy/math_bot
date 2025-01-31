@@ -33,13 +33,10 @@ def init_db():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Удаляем дублирующиеся таблицы
+        # Удаляем старую таблицу, если она существует
         cursor.execute('DROP TABLE IF EXISTS problems')
-        cursor.execute('DROP TABLE IF EXISTS user_stats')
-        cursor.execute('DROP TABLE IF EXISTS achievements')
-        cursor.execute('DROP TABLE IF EXISTS user_achievements')
 
-        # Создаем таблицы заново
+        # Создаем новую таблицу
         cursor.execute('''
         CREATE TABLE problems (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +52,7 @@ def init_db():
         ''')
 
         cursor.execute('''
-        CREATE TABLE user_stats (
+        CREATE TABLE IF NOT EXISTS user_stats (
             user_id INTEGER PRIMARY KEY,
             total_attempts INTEGER DEFAULT 0,
             solved INTEGER DEFAULT 0,
@@ -63,8 +60,9 @@ def init_db():
         )
         ''')
 
+        # Новая таблица для достижений
         cursor.execute('''
-        CREATE TABLE achievements (
+        CREATE TABLE IF NOT EXISTS achievements (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             description TEXT NOT NULL,
@@ -74,8 +72,9 @@ def init_db():
         )
         ''')
 
+        # Таблица для хранения полученных достижений пользователей
         cursor.execute('''
-        CREATE TABLE user_achievements (
+        CREATE TABLE IF NOT EXISTS user_achievements (
             user_id INTEGER,
             achievement_id INTEGER,
             obtained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -84,9 +83,25 @@ def init_db():
         )
         ''')
 
-        # Создаем индексы
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_level ON problems (exam_type, level)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_achievements ON user_achievements (user_id)')
+        # Добавляем базовые достижения, если их нет
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Первые шаги", "Решите первую задачу", "solved", 1, "🎯"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Начинающий математик", "Решите 10 задач", "solved", 10, "🎓"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Опытный решатель", "Решите 50 задач", "solved", 50, "🏆"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Мастер математики", "Решите 100 задач", "solved", 100, "👑"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Точность 80%", "Достигните точности решения 80%", "accuracy", 80, "🎯"))
+        cursor.execute(
+            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+            ("Точность 90%", "Достигните точности решения 90%", "accuracy", 90, "🎯"))
 
         conn.commit()
         logger.info(f"База данных инициализирована: {db_path}")
@@ -292,7 +307,6 @@ def update_user_stats(user_id: int, is_correct: bool) -> None:
 
 
 def get_user_stats(user_id: int) -> Dict:
-    """Получение статистики пользователя"""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -769,6 +783,67 @@ def init_stats_db():
         logger.error(f"Error initializing stats database: {e}")
 
 
+def get_user_stats(user_id: int) -> dict:
+    """Получение статистики пользователя"""
+    try:
+        db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+
+        # Инициализируем базу, если её нет
+        if not db_path.exists():
+            init_stats_db()
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Создаем запись для пользователя, если её нет
+        cursor.execute('''
+        INSERT OR IGNORE INTO user_stats (user_id, total_attempts, solved)
+        VALUES (?, 0, 0)
+        ''', (user_id,))
+        conn.commit()
+
+        # Получаем статистику
+        cursor.execute('SELECT total_attempts, solved FROM user_stats WHERE user_id = ?', (user_id,))
+        stats = cursor.fetchone()
+        conn.close()
+
+        if not stats:
+            return {
+                'total_attempts': 0,
+                'solved': 0,
+                'accuracy': 0,
+                'level': 1,
+                'rank': "🌱 Новичок",
+                'progress': 0
+            }
+
+        total_attempts, solved = stats
+        accuracy = (solved / total_attempts * 100) if total_attempts > 0 else 0
+
+        # Определяем ранг и уровень
+        rank, level, progress = calculate_rank(solved, accuracy)
+
+        return {
+            'total_attempts': total_attempts,
+            'solved': solved,
+            'accuracy': round(accuracy, 1),
+            'level': level,
+            'rank': rank,
+            'progress': progress
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting user stats: {e}")
+        return {
+            'total_attempts': 0,
+            'solved': 0,
+            'accuracy': 0,
+            'level': 1,
+            'rank': "🌱 Новичок",
+            'progress': 0
+        }
+
+
 def update_user_stats(user_id: int, is_correct: bool):
     """Обновление статистики пользователя"""
     try:
@@ -910,7 +985,7 @@ def check_achievements(user_id: int) -> list:
         # Проверяем каждое достижение
         for achievement in all_achievements:
             if (achievement['id'] not in [a['id'] for a in current_achievements] and
-                achievement['condition'](stats)):
+                    achievement['condition'](stats)):
                 new_achievement = {
                     "id": achievement['id'],
                     "name": achievement['name'],
