@@ -78,7 +78,7 @@ async def format_stats_message(stats: dict) -> str:
     accuracy = stats['accuracy']
     level = stats['level']
     rank = stats['rank']
-    progress = stats['progress']
+    progress = max(0, stats['progress'])
 
     # Прогресс-бар
     progress_bar_length = 10
