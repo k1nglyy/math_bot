@@ -27,206 +27,126 @@ def get_db():
 def init_db():
     """Инициализация базы данных"""
     try:
-        db_path = Path(__file__).parent.parent / "data" / "math_problems.db"
-        db_path.parent.mkdir(exist_ok=True)
-        
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Удаляем старую таблицу, если она существует
-        cursor.execute('DROP TABLE IF EXISTS problems')
-        
-        # Создаем новую таблицу
-        cursor.execute('''
-        CREATE TABLE problems (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            topic TEXT,
-            text TEXT,
-            answer TEXT,
-            answer_type TEXT,
-            exam_type TEXT,
-            level TEXT,
-            complexity INTEGER,
-            hint TEXT
-        )
-        ''')
-        
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_stats (
-            user_id INTEGER PRIMARY KEY,
-            total_attempts INTEGER DEFAULT 0,
-            solved INTEGER DEFAULT 0,
-            xp INTEGER DEFAULT 0
-        )
-        ''')
-
-        # Новая таблица для достижений
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS achievements (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL,
-            condition_type TEXT NOT NULL,
-            condition_value INTEGER NOT NULL,
-            icon TEXT NOT NULL
-        )
-        ''')
-
-        # Таблица для хранения полученных достижений пользователей
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_achievements (
-            user_id INTEGER,
-            achievement_id INTEGER,
-            obtained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (user_id, achievement_id),
-            FOREIGN KEY (achievement_id) REFERENCES achievements (id)
-        )
-        ''')
-
-        # Добавляем базовые достижения, если их нет
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Первые шаги", "Решите первую задачу", "solved", 1, "🎯"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Начинающий математик", "Решите 10 задач", "solved", 10, "🎓"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Опытный решатель", "Решите 50 задач", "solved", 50, "🏆"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Мастер математики", "Решите 100 задач", "solved", 100, "👑"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Точность 80%", "Достигните точности решения 80%", "accuracy", 80, "🎯"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Точность 90%", "Достигните точности решения 90%", "accuracy", 90, "🎯"))
-
-        conn.commit()
-        logger.info(f"База данных инициализирована: {db_path}")
-        
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Создаем таблицу задач
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS problems (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    topic TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    answer TEXT NOT NULL,
+                    answer_type TEXT DEFAULT 'string',
+                    exam_type TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    complexity INTEGER DEFAULT 2,
+                    hint TEXT,
+                    solution TEXT
+                )
+            """)
+            
+            # Создаем таблицу статистики пользователей
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_stats (
+                    user_id INTEGER PRIMARY KEY,
+                    total_attempts INTEGER DEFAULT 0,
+                    correct_answers INTEGER DEFAULT 0,
+                    current_streak INTEGER DEFAULT 0,
+                    max_streak INTEGER DEFAULT 0,
+                    last_answer_time TIMESTAMP
+                )
+            """)
+            
+            conn.commit()
+            logger.info("Database initialized successfully")
+            
     except Exception as e:
-        logger.error(f"Ошибка при инициализации базы данных: {e}")
+        logger.error(f"Error initializing database: {e}")
         raise
-    finally:
-        try:
-            conn.close()
-        except:
-            pass
 
 
-def get_problem(exam_type: str, level: str = None):
-    """Получение случайной задачи с учетом типа экзамена и уровня"""
-    db_path = Path(__file__).parent.parent / "data" / "math_problems.db"
-    
+def get_problem(exam_type: str, level: str, topic: Optional[str] = None) -> Optional[Dict]:
+    """Получает случайную задачу с заданными параметрами"""
     try:
-        if not db_path.exists():
-            logger.error(f"База данных не найдена по пути: {db_path}")
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Формируем запрос с учетом темы
+            query = """
+                SELECT id, topic, text, answer, answer_type,
+                       exam_type, level, complexity, hint, solution
+                FROM problems
+                WHERE exam_type = ? AND level = ?
+            """
+            params = [exam_type, level]
+            
+            if topic:
+                query += " AND topic = ?"
+                params.append(topic)
+                
+            query += " ORDER BY RANDOM() LIMIT 1"
+            
+            cursor.execute(query, params)
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    'id': result[0],
+                    'topic': result[1],
+                    'text': result[2],
+                    'answer': result[3],
+                    'answer_type': result[4],
+                    'exam_type': result[5],
+                    'level': result[6],
+                    'complexity': result[7],
+                    'hint': result[8],
+                    'solution': result[9]
+                }
             return None
             
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Выводим количество задач в базе для отладки
-        cursor.execute('SELECT COUNT(*) FROM problems')
-        total_count = cursor.fetchone()[0]
-        logger.info(f"Всего задач в базе: {total_count}")
-        
-        # Выводим количество задач для конкретного экзамена и уровня
-        cursor.execute('''
-            SELECT COUNT(*) FROM problems 
-            WHERE exam_type = ? AND level = ?
-        ''', (exam_type, level))
-        filtered_count = cursor.fetchone()[0]
-        logger.info(f"Задач для {exam_type} ({level}): {filtered_count}")
-        
-        # Формируем запрос с учетом уровня
-        if level:
-            cursor.execute('''
-            SELECT * FROM problems 
-            WHERE exam_type = ? AND level = ?
-            ORDER BY RANDOM() LIMIT 1
-            ''', (exam_type, level))
-        else:
-            cursor.execute('''
-            SELECT * FROM problems 
-            WHERE exam_type = ?
-            ORDER BY RANDOM() LIMIT 1
-            ''', (exam_type,))
-        
-        problem = cursor.fetchone()
-        
-        if problem:
-            result = {
-                'id': problem[0],
-                'topic': problem[1],
-                'text': problem[2],
-                'answer': problem[3],
-                'answer_type': problem[4],
-                'exam_type': problem[5],
-                'level': problem[6],
-                'complexity': problem[7],
-                'hint': problem[8]
-            }
-            conn.close()
-            return result
-        else:
-            logger.error(f"Задача не найдена для {exam_type} ({level})")
-            conn.close()
-            return None
-            
-    except sqlite3.Error as e:
-        logger.error(f"Ошибка базы данных: {e}")
-        return None
     except Exception as e:
-        logger.error(f"Неожиданная ошибка: {e}")
+        logger.error(f"Error getting problem: {e}")
         return None
-    finally:
-        try:
-            conn.close()
-        except:
-            pass
 
 
-def add_bulk_problems(problems: list):
-    """Добавление списка задач в базу данных"""
+def add_bulk_problems(problems: List[Dict]):
+    """Добавляет список задач в базу данных"""
     try:
-        db_path = Path(__file__).parent.parent / "data" / "math_problems.db"
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Подготовка данных для вставки
-        problems_data = []
-        for p in problems:
-            problems_data.append((
-                p['topic'],
-                p['text'],
-                p['answer'],
-                p.get('answer_type', 'string'),
-                p['exam_type'],
-                p['level'],
-                p['complexity'],
-                p['hint']
-            ))
-        
-        # Вставка данных
-        cursor.executemany('''
-        INSERT INTO problems (topic, text, answer, answer_type, exam_type, level, complexity, hint)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', problems_data)
-        
-        conn.commit()
-        logger.info(f"Добавлено {len(problems)} задач в базу данных")
-        
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            
+            # Подготавливаем данные для вставки
+            values = [
+                (
+                    problem.get('topic', ''),
+                    problem.get('text', ''),
+                    str(problem.get('answer', '')),
+                    problem.get('answer_type', 'string'),
+                    problem.get('exam_type', ''),
+                    problem.get('level', ''),
+                    problem.get('complexity', 2),
+                    problem.get('hint', ''),
+                    problem.get('solution', '')
+                )
+                for problem in problems
+            ]
+            
+            # Вставляем данные
+            cursor.executemany("""
+                INSERT INTO problems (
+                    topic, text, answer, answer_type,
+                    exam_type, level, complexity, hint, solution
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, values)
+            
+            conn.commit()
+            logger.info(f"Added {len(problems)} problems to database")
+            
     except Exception as e:
-        logger.error(f"Ошибка при добавлении задач: {e}")
+        logger.error(f"Error adding problems: {e}")
         raise
-    finally:
-        try:
-            conn.close()
-        except:
-            pass
 
 
 def get_user_level(solved: int, accuracy: float) -> dict:
@@ -277,85 +197,93 @@ def get_user_level(solved: int, accuracy: float) -> dict:
     }
 
 
-def update_user_stats(user_id: int, is_correct: bool) -> None:
+def update_user_stats(user_id: int, is_correct: bool):
+    """Обновляет статистику пользователя"""
     try:
-        with get_db() as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO user_stats (user_id, total_attempts, solved)
-                VALUES (?, 1, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    total_attempts = total_attempts + 1,
-                    solved = solved + ?
-                """,
-                (user_id, 1 if is_correct else 0, 1 if is_correct else 0)
-            )
-
-            # Обновляем XP пользователя
-            if is_correct:
-                cursor.execute(
-                    """
-                    UPDATE user_stats 
-                    SET xp = xp + ? 
-                    WHERE user_id = ?
-                    """,
-                    (10, user_id)
+            
+            # Создаем запись для пользователя, если её нет
+            cursor.execute("""
+                INSERT OR IGNORE INTO user_stats (
+                    user_id, total_attempts, correct_answers,
+                    current_streak, max_streak
                 )
+                VALUES (?, 0, 0, 0, 0)
+            """, (user_id,))
+            
+            # Получаем текущую статистику
+            cursor.execute("""
+                SELECT current_streak, max_streak
+                FROM user_stats
+                WHERE user_id = ?
+            """, (user_id,))
+            
+            current_streak, max_streak = cursor.fetchone()
+            
+            # Обновляем статистику
+            if is_correct:
+                current_streak += 1
+                max_streak = max(max_streak, current_streak)
+            else:
+                current_streak = 0
+            
+            cursor.execute("""
+                UPDATE user_stats
+                SET total_attempts = total_attempts + 1,
+                    correct_answers = correct_answers + ?,
+                    current_streak = ?,
+                    max_streak = ?,
+                    last_answer_time = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+            """, (1 if is_correct else 0, current_streak, max_streak, user_id))
+            
+            conn.commit()
+            
     except Exception as e:
         logger.error(f"Error updating user stats: {e}")
 
 
 def get_user_stats(user_id: int) -> Dict:
+    """Получает статистику пользователя"""
     try:
-        with get_db() as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT total_attempts, solved, xp
+            
+            cursor.execute("""
+                SELECT total_attempts, correct_answers,
+                       current_streak, max_streak
                 FROM user_stats
                 WHERE user_id = ?
-                """,
-                (user_id,)
-            )
+            """, (user_id,))
+            
             result = cursor.fetchone()
-
+            
             if result:
-                total_attempts, solved, xp = result
-                accuracy = round((solved / total_attempts * 100) if total_attempts > 0 else 0, 1)
-                level_info = get_user_level(solved, accuracy)
-
+                total, correct, streak, max_streak = result
                 return {
-                    "total_attempts": total_attempts,
-                    "solved": solved,
-                    "accuracy": accuracy,
-                    "xp": xp,
-                    "level": level_info["level"],
-                    "rank": level_info["rank"],
-                    "next_level_xp": level_info["next_level_xp"],
-                    "progress": level_info["progress"]
+                    'total_attempts': total,
+                    'correct_answers': correct,
+                    'accuracy': round(correct / total * 100 if total > 0 else 0, 1),
+                    'current_streak': streak,
+                    'max_streak': max_streak
                 }
             return {
-                "total_attempts": 0,
-                "solved": 0,
-                "accuracy": 0.0,
-                "xp": 0,
-                "level": 1,
-                "rank": "🌱 Новичок",
-                "next_level_xp": 100,
-                "progress": 0
+                'total_attempts': 0,
+                'correct_answers': 0,
+                'accuracy': 0,
+                'current_streak': 0,
+                'max_streak': 0
             }
+            
     except Exception as e:
         logger.error(f"Error getting user stats: {e}")
         return {
-            "total_attempts": 0,
-            "solved": 0,
-            "accuracy": 0.0,
-            "xp": 0,
-            "level": 1,
-            "rank": "🌱 Новичок",
-            "next_level_xp": 100,
-            "progress": 0
+            'total_attempts': 0,
+            'correct_answers': 0,
+            'accuracy': 0,
+            'current_streak': 0,
+            'max_streak': 0
         }
 
 
@@ -617,7 +545,7 @@ def check_achievements(user_id: int) -> List[Dict]:
                 aid, name, description, condition_type, condition_value, icon = achievement
 
                 # Проверяем условия достижения
-                if condition_type == "solved" and stats["solved"] >= condition_value:
+                if condition_type == "solved" and stats["correct_answers"] >= condition_value:
                     new_achievements.append({
                         "name": name,
                         "description": description,
@@ -682,7 +610,7 @@ def get_adaptive_problem(exam_type: str, level: str, last_topic: str = None, use
             # Определяем оптимальную сложность на основе статистики
             if user_stats and user_stats['total_attempts'] > 0:
                 accuracy = user_stats['accuracy']
-                solved = user_stats['solved']
+                solved = user_stats['correct_answers']
 
                 # Адаптивная логика сложности с учетом количества решенных задач
                 if exam_type == "ЕГЭ" and level == "профиль":
