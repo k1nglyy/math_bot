@@ -340,34 +340,47 @@ def generate_problems():
     TASKS_PER_CATEGORY = 20
 
     for exam_type in ["ЕГЭ", "ОГЭ"]:
+        # Исправляем логику выбора уровней
         levels = ["база", "профиль"] if exam_type == "ЕГЭ" else ["база"]
         for level in levels:
+            # Для ЕГЭ
             if exam_type == "ЕГЭ":
-                # Добавляем новые типы заданий для ЕГЭ
                 for _ in range(TASKS_PER_CATEGORY):
-                    problems.append(generate_basic_exponential(exam_type, level))
-                    problems.append(generate_basic_logarithm(exam_type, level))
-                    problems.append(generate_basic_trig(exam_type, level))
+                    problems.extend([
+                        generate_basic_exponential(exam_type, level),
+                        generate_basic_logarithm(exam_type, level),
+                        generate_basic_trig(exam_type, level)
+                    ])
+                    
+                    # Добавляем базовые задания и для ЕГЭ базового уровня
+                    if level == "база":
+                        problems.extend([
+                            generate_linear_equation(exam_type, level),
+                            generate_probability_simple(exam_type, level),
+                            generate_statistics_problem(exam_type, level)
+                        ])
 
-            # Базовые задания теперь только для ОГЭ
-            if exam_type == "ОГЭ":
-                for _ in range(TASKS_PER_CATEGORY // 3):
-                    problems.append(generate_nice_quadratic(exam_type, level))
-                    problems.append(generate_linear_equation(exam_type, level))
-                    problems.append(generate_progression_problem(exam_type, level))
-                    problems.append(generate_circle_problem(exam_type, level))
-                    problems.append(generate_triangle_problem(exam_type, level))
-                    problems.append(generate_rectangle_problem(exam_type, level))
-                    problems.append(generate_probability_simple(exam_type, level))
-                    problems.append(generate_statistics_problem(exam_type, level))
+            # Для ОГЭ
+            else:
+                for _ in range(TASKS_PER_CATEGORY):
+                    problems.extend([
+                        generate_nice_quadratic(exam_type, level),
+                        generate_linear_equation(exam_type, level),
+                        generate_progression_problem(exam_type, level),
+                        generate_circle_problem(exam_type, level),
+                        generate_triangle_problem(exam_type, level),
+                        generate_rectangle_problem(exam_type, level),
+                        generate_probability_simple(exam_type, level),
+                        generate_statistics_problem(exam_type, level)
+                    ])
 
-    # Добавляем проверку количества сгенерированных задач
+    # Логирование количества сгенерированных задач
     print(f"\nСгенерировано задач:")
     exam_counts = {}
     for p in problems:
         key = f"{p['exam_type']} ({p['level']})"
         exam_counts[key] = exam_counts.get(key, 0) + 1
-
+        
     for exam, count in exam_counts.items():
         print(f"- {exam}: {count} задач")
 
