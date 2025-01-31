@@ -413,26 +413,35 @@ def check_single_answer(user_value, correct_value, problem_type):
 
 @router.message(UserState.solving_task)
 async def check_answer(message: types.Message, state: FSMContext):
-    if message.text == "📊 Статистика":
-        await show_stats(message)
-        return
-
+    """Проверка ответа пользователя"""
     try:
+        if message.text in ["📊 Статистика", "🏆 Достижения", "ℹ️ Помощь", "🎓 Выбрать экзамен"]:
+            if message.text == "📊 Статистика":
+                await show_stats(message)
+            elif message.text == "🏆 Достижения":
+                await show_achievements(message)
+            elif message.text == "ℹ️ Помощь":
+                await show_help(message)
+            elif message.text == "🎓 Выбрать экзамен":
+                await choose_exam(message, state)
+            return
+
         data = await state.get_data()
         problem = data.get('current_problem')
+        
         if not problem:
             await message.answer(
-                "⚠️ *Сначала запросите задачу!*\n\n"
-                "Нажмите '📚 Получить задачу'",
-                parse_mode="Markdown",
+                "⚠️ Сначала получите задачу!",
                 reply_markup=main_menu
             )
             return
 
         user_answer = message.text.strip().replace(',', '.')
         is_correct = check_answers_equality(user_answer, problem['answer'], problem['topic'])
+        
+        # Обновляем статистику
         update_user_stats(message.from_user.id, is_correct)
-
+        
         if is_correct:
             await message.answer(
                 "✨ *Отлично!* Правильный ответ! 🎉\n\n"
@@ -440,6 +449,21 @@ async def check_answer(message: types.Message, state: FSMContext):
                 parse_mode="Markdown",
                 reply_markup=main_menu
             )
+            
+            # Проверяем новые достижения
+            new_achievements = check_achievements(message.from_user.id)
+            if new_achievements:
+                achievements_text = (
+                    "🎉 *Поздравляем!*\n\n"
+                    "*Получены новые достижения:*\n\n"
+                )
+                for ach in new_achievements:
+                    achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
+                await message.answer(achievements_text, parse_mode="Markdown")
+            
+            # Показываем статистику
+            await show_stats(message)
+            
         else:
             hint_text = (
                 f"❌ *Неверно*\n\n"
@@ -448,22 +472,12 @@ async def check_answer(message: types.Message, state: FSMContext):
                 f"💡 *Подсказка:*\n{problem['hint']}"
             )
             await message.answer(hint_text, parse_mode="Markdown", reply_markup=main_menu)
-
-        new_achievements = check_achievements(message.from_user.id)
-        if new_achievements:
-            achievements_text = (
-                "🎉 *Поздравляем!*\n\n"
-                "*Получены новые достижения:*\n\n"
-            )
-            for ach in new_achievements:
-                achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
-            await message.answer(achievements_text, parse_mode="Markdown", reply_markup=main_menu)
-
-        await show_stats(message)
+        
+        # Получаем новую задачу
         await send_task(message, state)
-
+        
     except Exception as e:
-        logger.error(f"Error checking answer: {e}")
+        logger.error(f"Error in check_answer: {e}")
         await message.answer(
             "⚠️ *Примеры правильного формата ответа:*\n\n"
             "🔹 Целые числа: `50`\n"

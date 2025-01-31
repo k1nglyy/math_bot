@@ -6,6 +6,7 @@ from sqlite3 import Error
 from pathlib import Path
 import math
 import json
+from datetime import datetime
 
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO)
@@ -752,6 +753,252 @@ def get_adaptive_problem(exam_type: str, level: str, last_topic: str = None, use
     except Exception as e:
         logger.error(f"Error getting adaptive problem: {e}")
         return None
+
+
+def init_stats_db():
+    """Инициализация базы данных статистики"""
+    db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+    db_path.parent.mkdir(exist_ok=True)
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Создаем таблицу статистики, если её нет
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_stats (
+        user_id INTEGER PRIMARY KEY,
+        total_attempts INTEGER DEFAULT 0,
+        solved INTEGER DEFAULT 0,
+        current_streak INTEGER DEFAULT 0,
+        max_streak INTEGER DEFAULT 0,
+        last_answer_time TIMESTAMP,
+        achievements TEXT DEFAULT '[]'
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+
+def get_user_stats(user_id: int) -> dict:
+    """Получение статистики пользователя"""
+    try:
+        db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Создаем запись для пользователя, если её нет
+        cursor.execute('''
+        INSERT OR IGNORE INTO user_stats (user_id, total_attempts, solved)
+        VALUES (?, 0, 0)
+        ''', (user_id,))
+        
+        # Получаем статистику
+        cursor.execute('SELECT total_attempts, solved FROM user_stats WHERE user_id = ?', (user_id,))
+        stats = cursor.fetchone()
+        
+        if not stats:
+            return {
+                'total_attempts': 0,
+                'solved': 0,
+                'accuracy': 0,
+                'level': 1,
+                'rank': "🌱 Новичок",
+                'progress': 0
+            }
+        
+        total_attempts, solved = stats
+        accuracy = (solved / total_attempts * 100) if total_attempts > 0 else 0
+        
+        # Определяем ранг и уровень
+        rank, level, progress = calculate_rank(solved, accuracy)
+        
+        conn.close()
+        return {
+            'total_attempts': total_attempts,
+            'solved': solved,
+            'accuracy': round(accuracy, 1),
+            'level': level,
+            'rank': rank,
+            'progress': progress
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting user stats: {e}")
+        return {
+            'total_attempts': 0,
+            'solved': 0,
+            'accuracy': 0,
+            'level': 1,
+            'rank': "🌱 Новичок",
+            'progress': 0
+        }
+
+
+def update_user_stats(user_id: int, is_correct: bool):
+    """Обновление статистики пользователя"""
+    try:
+        db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Создаем запись для пользователя, если её нет
+        cursor.execute('''
+        INSERT OR IGNORE INTO user_stats (user_id, total_attempts, solved)
+        VALUES (?, 0, 0)
+        ''', (user_id,))
+        
+        # Обновляем статистику
+        if is_correct:
+            cursor.execute('''
+            UPDATE user_stats 
+            SET total_attempts = total_attempts + 1,
+                solved = solved + 1
+            WHERE user_id = ?
+            ''', (user_id,))
+        else:
+            cursor.execute('''
+            UPDATE user_stats 
+            SET total_attempts = total_attempts + 1
+            WHERE user_id = ?
+            ''', (user_id,))
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        logger.error(f"Error updating user stats: {e}")
+
+
+def calculate_rank(solved: int, accuracy: float) -> tuple:
+    """Вычисление ранга пользователя"""
+    ranks = [
+        (0, "🌱 Новичок"),
+        (5, "📚 Ученик"),
+        (15, "🎯 Практик"),
+        (30, "💫 Знаток"),
+        (50, "🏆 Мастер"),
+        (100, "👑 Гроссмейстер"),
+        (200, "⭐ Легенда"),
+        (500, "🌟 Профессор")
+    ]
+    
+    # Определяем текущий ранг
+    current_rank = ranks[0][1]
+    next_rank_solved = ranks[1][0]
+    level = 1
+    
+    for i, (required_solved, rank_name) in enumerate(ranks):
+        if solved >= required_solved:
+            current_rank = rank_name
+            level = i + 1
+            if i < len(ranks) - 1:
+                next_rank_solved = ranks[i + 1][0]
+            else:
+                next_rank_solved = required_solved
+        else:
+            break
+    
+    # Вычисляем прогресс до следующего ранга
+    progress = min(100, (solved / next_rank_solved * 100)) if next_rank_solved > 0 else 100
+    
+    # Корректируем ранг в зависимости от точности
+    if accuracy < 50 and level > 1:
+        level -= 1
+        current_rank = ranks[level - 1][1]
+    
+    return current_rank, level, round(progress)
+
+
+def get_user_achievements(user_id: int) -> list:
+    """Получение достижений пользователя"""
+    try:
+        db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT achievements FROM user_stats WHERE user_id = ?', (user_id,))
+        result = cursor.fetchone()
+        
+        if result and result[0]:
+            achievements = json.loads(result[0])
+        else:
+            achievements = []
+            
+        conn.close()
+        return achievements
+        
+    except Exception as e:
+        logger.error(f"Error getting user achievements: {e}")
+        return []
+
+
+def check_achievements(user_id: int) -> list:
+    """Проверка и выдача новых достижений"""
+    try:
+        stats = get_user_stats(user_id)
+        current_achievements = get_user_achievements(user_id)
+        new_achievements = []
+        
+        # Список всех возможных достижений
+        all_achievements = [
+            {
+                "id": "first_solve",
+                "name": "Первые шаги",
+                "description": "Решите первую задачу",
+                "icon": "🎯",
+                "condition": lambda s: s['solved'] >= 1
+            },
+            {
+                "id": "accuracy_80",
+                "name": "Точность 80%",
+                "description": "Достигните точности решения 80%",
+                "icon": "🎯",
+                "condition": lambda s: s['accuracy'] >= 80
+            },
+            {
+                "id": "accuracy_90",
+                "name": "Точность 90%",
+                "description": "Достигните точности решения 90%",
+                "icon": "🎯",
+                "condition": lambda s: s['accuracy'] >= 90
+            }
+        ]
+        
+        # Проверяем каждое достижение
+        for achievement in all_achievements:
+            if (achievement['id'] not in [a['id'] for a in current_achievements] and 
+                achievement['condition'](stats)):
+                new_achievement = {
+                    "id": achievement['id'],
+                    "name": achievement['name'],
+                    "description": achievement['description'],
+                    "icon": achievement['icon'],
+                    "obtained_at": datetime.now().isoformat()
+                }
+                new_achievements.append(new_achievement)
+                current_achievements.append(new_achievement)
+        
+        # Если есть новые достижения, сохраняем их
+        if new_achievements:
+            db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            UPDATE user_stats 
+            SET achievements = ?
+            WHERE user_id = ?
+            ''', (json.dumps(current_achievements), user_id))
+            
+            conn.commit()
+            conn.close()
+        
+        return new_achievements
+        
+    except Exception as e:
+        logger.error(f"Error checking achievements: {e}")
+        return []
 
 
 if __name__ == "__main__":
