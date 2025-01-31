@@ -300,20 +300,21 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        # Используем TaskManager для получения задачи
-        problem = task_manager.get_new_task(exam_type, level)
+        # Временно используем get_problem вместо get_adaptive_problem
+        problem = get_problem(exam_type, level)
         
         if not problem:
             await message.answer(
                 "😔 Не удалось найти задачу. Попробуйте другой тип экзамена.",
                 reply_markup=main_menu
             )
+            logger.error(f"No problem found for exam_type={exam_type}, level={level}")
             return
 
         # Сохраняем только необходимые данные в состоянии
         await state.update_data(
             current_problem={
-                'id': problem['id'],
+                'id': problem.get('id', '0'),  # Добавляем значение по умолчанию
                 'answer': problem['answer'],
                 'topic': problem['topic'],
                 'hint': problem.get('hint', 'Подсказка недоступна')
@@ -322,6 +323,8 @@ async def send_task(message: types.Message, state: FSMContext):
 
         task_message = await format_task_message(problem)
         await message.answer(task_message, reply_markup=main_menu)
+        
+        logger.info(f"Sent problem to user {message.from_user.id}: {problem['id']}")
         
     except Exception as e:
         logger.error(f"Error in send_task: {e}")
