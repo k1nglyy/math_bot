@@ -458,41 +458,43 @@ async def send_task(message: types.Message, state: FSMContext):
         if not exam_type or not level:
             await message.answer(
                 "⚠️ Сначала выберите тип экзамена!",
-                reply_markup=main_menu
+                reply_markup=main_menu,
+                parse_mode="Markdown"
             )
             return
 
-        # Временно используем get_problem вместо get_adaptive_problem
+        # Получаем задачу
         problem = get_problem(exam_type, level)
         
         if not problem:
             await message.answer(
                 "😔 Не удалось найти задачу. Попробуйте другой тип экзамена.",
-                reply_markup=main_menu
+                reply_markup=main_menu,
+                parse_mode="Markdown"
             )
             logger.error(f"No problem found for exam_type={exam_type}, level={level}")
             return
 
-        # Сохраняем только необходимые данные в состоянии
-        await state.update_data(
-            current_problem={
-                'id': problem.get('id', '0'),  # Добавляем значение по умолчанию
-                'answer': problem['answer'],
-                'topic': problem['topic'],
-                'hint': problem.get('hint', 'Подсказка недоступна')
-            }
-        )
+        # Сохраняем задачу в состоянии
+        await state.update_data(current_problem=problem)
+        await state.set_state(UserState.solving_task)
 
+        # Форматируем и отправляем задачу
         task_message = await format_task_message(problem)
-        await message.answer(task_message, reply_markup=main_menu)
+        await message.answer(
+            task_message,
+            reply_markup=main_menu,
+            parse_mode="Markdown"
+        )
         
-        logger.info(f"Sent problem to user {message.from_user.id}: {problem['id']}")
+        logger.info(f"Sent problem {problem.get('id', 'unknown')} to user {message.from_user.id}")
         
     except Exception as e:
         logger.error(f"Error in send_task: {e}")
         await message.answer(
-            "😔 Произошла ошибка. Попробуйте еще раз.",
-            reply_markup=main_menu
+            "😔 Произошла ошибка при получении задачи. Попробуйте еще раз.",
+            reply_markup=main_menu,
+            parse_mode="Markdown"
         )
 
 
@@ -678,7 +680,8 @@ def check_answers_equality(user_answer: str, correct_answer: str, answer_type: s
 async def check_answer(message: types.Message, state: FSMContext):
     """Проверка ответа пользователя"""
     try:
-        if message.text in ["📊 Статистика", "🏆 Достижения", "💡 Помощь", "📝 Выбрать экзамен"]:
+        # Проверяем специальные команды меню
+        if message.text in ["📊 Статистика", "🏆 Достижения", "💡 Помощь", "📝 Выбрать экзамен", "📚 Темы"]:
             if message.text == "📊 Статистика":
                 await show_stats(message)
             elif message.text == "🏆 Достижения":
@@ -687,66 +690,89 @@ async def check_answer(message: types.Message, state: FSMContext):
                 await show_help(message)
             elif message.text == "📝 Выбрать экзамен":
                 await choose_exam(message, state)
+            elif message.text == "📚 Темы":
+                await show_topics(message)
             return
 
+        # Получаем данные текущей задачи
         data = await state.get_data()
         problem = data.get('current_problem')
         
         if not problem:
             await message.answer(
                 "⚠️ Сначала получите задачу!",
-                reply_markup=main_menu
+                reply_markup=main_menu,
+                parse_mode="Markdown"
             )
             return
 
+        # Нормализуем ответ пользователя
         user_answer = message.text.strip().replace(',', '.')
-        is_correct = check_answers_equality(user_answer, problem['answer'], problem['topic'])
+        
+        # Проверяем ответ с учетом типа
+        is_correct = check_answers_equality(
+            user_answer, 
+            problem['answer'],
+            problem.get('answer_type', 'string')
+        )
         
         # Обновляем статистику
         update_user_stats(message.from_user.id, is_correct)
         
         if is_correct:
             await message.answer(
-                "✨ *Отлично!* Правильный ответ! 🎉\n\n"
-                "_Так держать!_",
+                "✨ *Правильно!* 🎉\n\n"
+                "_Отличная работа!_",
                 parse_mode="Markdown",
                 reply_markup=main_menu
             )
             
-            # Проверяем новые достижения
+            # Проверяем достижения
             new_achievements = check_achievements(message.from_user.id)
             if new_achievements:
                 achievements_text = (
-                    "🎉 *Поздравляем!*\n\n"
-                    "*Получены новые достижения:*\n\n"
+                    "🎉 *Новые достижения:*\n\n"
                 )
                 for ach in new_achievements:
                     achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
-                await message.answer(achievements_text, parse_mode="Markdown")
+                await message.answer(
+                    achievements_text,
+                    parse_mode="Markdown"
+                )
         else:
-            hint_text = (
+            # Формируем подсказку по формату
+            format_hint = {
+                "integer": "целое число",
+                "float": "число с точкой",
+                "trig": "точное значение (например, √2/2) или десятичную дробь",
+                "string": "ответ"
+            }.get(problem.get('answer_type', 'string'), "ответ")
+
+            await message.answer(
                 f"❌ *Неверно*\n\n"
                 f"Ваш ответ: `{user_answer}`\n"
                 f"Правильный ответ: `{problem['answer']}`\n\n"
-                f"💡 *Подсказка:*\n{problem['hint']}"
+                f"💡 *Подсказка:*\n{problem['hint']}\n\n"
+                f"📝 Формат ответа: _{format_hint}_",
+                parse_mode="Markdown",
+                reply_markup=main_menu
             )
-            await message.answer(hint_text, parse_mode="Markdown", reply_markup=main_menu)
-            
-        # Показываем статистику в любом случае
+        
+        # Показываем статистику
         await show_stats(message)
-            
+        
         # Получаем новую задачу
         await send_task(message, state)
         
     except Exception as e:
         logger.error(f"Error in check_answer: {e}")
         await message.answer(
-            "⚠️ *Примеры правильного формата ответа:*\n\n"
-            "🔹 Целые числа: `50`\n"
-            "🔹 Десятичные дроби: `50.24`\n"
-            "🔹 Дроби: `1/2`\n"
-            "🔹 Несколько ответов: `2; -5`\n"
-            "🔹 Вероятности: `0.5` или `1/2`",
+            "⚠️ *Произошла ошибка при проверке ответа*\n\n"
+            "Примеры правильного формата ответа:\n"
+            "🔹 Целые числа: `42`\n"
+            "🔹 Дробные числа: `3.14`\n"
+            "🔹 Тригонометрия: `√2/2` или `0.707`\n"
+            "🔹 Дроби: `1/2`",
             parse_mode="Markdown",
             reply_markup=main_menu
         )
