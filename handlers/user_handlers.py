@@ -184,55 +184,61 @@ async def choose_exam(message: types.Message, state: FSMContext):
     try:
         logger.info(f"User {message.from_user.id} choosing exam")
         await state.clear()  # Очищаем предыдущее состояние
-        await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
         await state.set_state(UserState.choosing_exam)
+        await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
     except Exception as e:
         logger.error(f"Error in choose_exam: {e}")
         await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
 
 
-@router.message(lambda message: message.text in ["ЕГЭ", "ОГЭ"])
-async def set_exam(message: types.Message, state: FSMContext):
+@router.message(UserState.choosing_exam)
+async def process_exam_choice(message: types.Message, state: FSMContext):
     try:
-        current_state = await state.get_state()
-        logger.info(f"User {message.from_user.id} setting exam {message.text}, current state: {current_state}")
-        
+        if message.text not in ["ЕГЭ", "ОГЭ"]:
+            await message.answer("Пожалуйста, выберите ЕГЭ или ОГЭ", reply_markup=exam_menu)
+            return
+
+        logger.info(f"User {message.from_user.id} selected exam: {message.text}")
         exam_type = message.text
         await state.update_data(exam_type=exam_type)
 
         if exam_type == "ОГЭ":
             await state.update_data(level="база")
+            logger.info(f"User {message.from_user.id} state data: {await state.get_data()}")
+            await state.set_state(UserState.solving_task)
             await message.answer(
                 "✅ Выбран ОГЭ (базовый уровень).\nНажмите '📚 Получить задачу'!",
                 reply_markup=main_menu
             )
-            await state.set_state(UserState.solving_task)
         else:
-            await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
             await state.set_state(UserState.choosing_level)
+            await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
     except Exception as e:
-        logger.error(f"Error in set_exam: {e}")
+        logger.error(f"Error in process_exam_choice: {e}")
         await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
 
 
-@router.message(lambda message: message.text in ["База", "Профиль"])
-async def set_level(message: types.Message, state: FSMContext):
+@router.message(UserState.choosing_level)
+async def process_level_choice(message: types.Message, state: FSMContext):
     try:
-        current_state = await state.get_state()
-        logger.info(f"User {message.from_user.id} setting level {message.text}, current state: {current_state}")
-        
+        if message.text not in ["База", "Профиль"]:
+            await message.answer("Пожалуйста, выберите 'База' или 'Профиль'", reply_markup=level_menu)
+            return
+
+        logger.info(f"User {message.from_user.id} selected level: {message.text}")
         level = message.text.lower()
         data = await state.get_data()
-        exam_type = data.get('exam_type', 'ЕГЭ')  # По умолчанию ЕГЭ
+        exam_type = data.get('exam_type', 'ЕГЭ')
         
         await state.update_data(level=level)
+        logger.info(f"User {message.from_user.id} state data: {await state.get_data()}")
+        await state.set_state(UserState.solving_task)
         await message.answer(
             f"✅ Выбран {exam_type} ({level}).\nНажмите '📚 Получить задачу'!",
             reply_markup=main_menu
         )
-        await state.set_state(UserState.solving_task)
     except Exception as e:
-        logger.error(f"Error in set_level: {e}")
+        logger.error(f"Error in process_level_choice: {e}")
         await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
 
 
@@ -240,8 +246,9 @@ async def set_level(message: types.Message, state: FSMContext):
 async def send_task(message: types.Message, state: FSMContext):
     try:
         logger.info(f"User {message.from_user.id} requesting task")
+        current_state = await state.get_state()
         data = await state.get_data()
-        logger.info(f"User state data: {data}")
+        logger.info(f"User state: {current_state}, data: {data}")
         
         exam_type = data.get('exam_type')
         level = data.get('level')
