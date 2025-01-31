@@ -1,4 +1,4 @@
-from aiogram import Router, types
+from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -60,7 +60,7 @@ topics_menu = ReplyKeyboardMarkup(
 exam_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📚 ЕГЭ"), KeyboardButton(text="📖 ОГЭ")],
-        [KeyboardButton(text="🔙 Вернуться в меню")]
+        [KeyboardButton(text="🔙 Главное меню")]
     ],
     resize_keyboard=True
 )
@@ -68,7 +68,7 @@ exam_menu = ReplyKeyboardMarkup(
 level_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📘 База"), KeyboardButton(text="📗 Профиль")],
-        [KeyboardButton(text="🔙 Вернуться в меню")]
+        [KeyboardButton(text="🔙 Главное меню")]
     ],
     resize_keyboard=True
 )
@@ -382,50 +382,56 @@ async def cmd_start(message: types.Message, state: FSMContext):
         "Я помогу вам подготовиться к экзаменам по математике.\n\n"
         "🔹 Выбирайте тип экзамена\n"
         "🔹 Решайте задачи\n"
-        "🔹 Следите за прогрессом\n"
-        "🔹 Получайте достижения\n\n"
+        "🔹 Следите за прогрессом\n\n"
         "Начнем? Выберите действие в меню! 👇",
         reply_markup=main_menu
     )
 
 
-@router.message(lambda message: message.text == "📝 Выбрать экзамен")
+@router.message(F.text == "📝 Выбрать экзамен")
 async def choose_exam(message: types.Message, state: FSMContext):
     await state.set_state(UserState.choosing_exam)
     await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
 
 
+@router.message(F.text == "🔙 Главное меню")
+async def return_to_main_menu(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Вы вернулись в главное меню", reply_markup=main_menu)
+
+
 @router.message(UserState.choosing_exam)
 async def process_exam_choice(message: types.Message, state: FSMContext):
     if message.text in ["📚 ЕГЭ", "📖 ОГЭ"]:
-        await state.update_data(exam_type=message.text)
+        exam_type = "ЕГЭ" if message.text == "📚 ЕГЭ" else "ОГЭ"
+        await state.update_data(exam_type=exam_type)
         await state.set_state(UserState.choosing_level)
         await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
     else:
-        await message.answer("Пожалуйста, выберите тип экзамена из меню.")
+        await message.answer("Пожалуйста, выберите тип экзамена из меню.", reply_markup=exam_menu)
 
 
 @router.message(UserState.choosing_level)
 async def process_level_choice(message: types.Message, state: FSMContext):
-    if message.text in ["📘 База", "📗 Профиль"]:
-        await state.update_data(level=message.text)
+    if message.text in ["📘 База", "�� Профиль"]:
+        level = "база" if message.text == "📘 База" else "профиль"
+        await state.update_data(level=level)
         data = await state.get_data()
         await message.answer(
-            f"✅ Выбран {data['exam_type']} ({message.text}).\n"
+            f"✅ Выбран {data['exam_type']} ({level}).\n"
             "Нажмите '✨ Получить задачу'!",
             reply_markup=main_menu
         )
-        await state.set_state(UserState.solving_task)
     else:
-        await message.answer("Пожалуйста, выберите уровень из меню.")
+        await message.answer("Пожалуйста, выберите уровень из меню.", reply_markup=level_menu)
 
 
-@router.message(lambda message: message.text == "✨ Получить задачу")
+@router.message(F.text == "✨ Получить задачу")
 async def send_task(message: types.Message, state: FSMContext):
     try:
         data = await state.get_data()
-        exam_type = data.get('exam_type', '').replace('📚 ', '').replace('📖 ', '')
-        level = data.get('level', '').replace('📘 ', '').replace('📗 ', '').lower()
+        exam_type = data.get('exam_type')
+        level = data.get('level')
 
         if not exam_type or not level:
             await message.answer(
@@ -435,16 +441,18 @@ async def send_task(message: types.Message, state: FSMContext):
             return
 
         problem = get_problem(exam_type, level)
+        logger.info(f"Got problem: {problem}")
         
         if not problem:
             await message.answer(
-                "😔 Не удалось найти задачу. Попробуйте перезапустить бота командой /start",
+                "😔 Не удалось найти задачу. Попробуйте другой тип экзамена.",
                 reply_markup=main_menu
             )
             return
 
         await state.update_data(current_problem=problem)
-        
+        await state.set_state(UserState.solving_task)
+
         task_message = (
             f"{'='*30}\n"
             f"📚 {problem['topic']}\n"
@@ -458,7 +466,7 @@ async def send_task(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Error in send_task: {e}", exc_info=True)
         await message.answer(
-            "😔 Произошла ошибка. Попробуйте перезапустить бота командой /start",
+            "😔 Произошла ошибка. Попробуйте перезапустить бота.",
             reply_markup=main_menu
         )
 
@@ -624,12 +632,4 @@ async def show_topics(message: types.Message):
     await message.answer(
         "Выберите тему для практики:",
         reply_markup=topics_menu
-    )
-
-@router.message(lambda message: message.text.endswith("Вернуться в меню"))
-async def return_to_main_menu(message: types.Message):
-    """Возвращает в главное меню"""
-    await message.answer(
-        "Вы вернулись в главное меню",
-        reply_markup=main_menu
     )
