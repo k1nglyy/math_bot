@@ -932,7 +932,6 @@ def check_achievements(user_id: int) -> list:
         logger.error(f"Error checking achievements: {e}")
         return []
 
-
 if __name__ == "__main__":
     create_tables()
     add_sample_problems()
