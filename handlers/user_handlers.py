@@ -53,25 +53,66 @@ class UserState(StatesGroup):
 
 class TaskManager:
     def __init__(self):
-        self.used_tasks = set()  # Множество для хранения использованных заданий
-        self.all_tasks = [...]  # Здесь должен быть ваш список всех возможных заданий
-    
-    def get_new_task(self):
-        # Получаем список доступных заданий (те, которые ещё не использовались)
-        available_tasks = [task for task in self.all_tasks if task not in self.used_tasks]
+        self._last_topic = None
+        self._used_tasks = {}  # Словарь для отслеживания использованных заданий по темам
         
-        # Если все задания уже были использованы
-        if not available_tasks:
-            raise Exception("Все задания уже были использованы!")
-        
-        # Выбираем случайное задание из доступных
-        task = random.choice(available_tasks)
-        
-        # Добавляем задание в множество использованных
-        self.used_tasks.add(task)
-        
-        return task
+    def get_new_task(self, exam_type: str, level: str) -> dict:
+        """Получает новую задачу с чередованием тем"""
+        try:
+            # Получаем все доступные задачи для данного экзамена и уровня
+            available_problems = get_adaptive_problem(exam_type, level)
+            
+            if not available_problems:
+                return None
+            
+            # Группируем задачи по темам
+            problems_by_topic = {}
+            for problem in available_problems:
+                topic = problem['topic']
+                if topic not in problems_by_topic:
+                    problems_by_topic[topic] = []
+                problems_by_topic[topic].append(problem)
+            
+            # Выбираем тему, отличную от предыдущей
+            available_topics = list(problems_by_topic.keys())
+            if self._last_topic in available_topics:
+                available_topics.remove(self._last_topic)
+            
+            if not available_topics:  # Если нет других тем, сбрасываем историю
+                self._last_topic = None
+                available_topics = list(problems_by_topic.keys())
+            
+            # Выбираем случайную тему
+            new_topic = random.choice(available_topics)
+            
+            # Инициализируем множество использованных задач для новой темы
+            if new_topic not in self._used_tasks:
+                self._used_tasks[new_topic] = set()
+            
+            # Выбираем неиспользованную задачу из выбранной темы
+            available_tasks = [
+                task for task in problems_by_topic[new_topic] 
+                if task['id'] not in self._used_tasks[new_topic]
+            ]
+            
+            if not available_tasks:  # Если все задачи темы использованы
+                self._used_tasks[new_topic].clear()  # Сбрасываем историю для этой темы
+                available_tasks = problems_by_topic[new_topic]
+            
+            task = random.choice(available_tasks)
+            
+            # Обновляем историю
+            self._used_tasks[new_topic].add(task['id'])
+            self._last_topic = new_topic
+            
+            return task
+            
+        except Exception as e:
+            logger.error(f"Error in get_new_task: {e}")
+            return None
 
+# Создаем глобальный экземпляр TaskManager
+task_manager = TaskManager()
 
 async def format_task_message(problem: dict) -> str:
     """Форматирует сообщение с задачей"""
@@ -244,11 +285,10 @@ async def process_level_choice(message: types.Message, state: FSMContext):
 
 @router.message(lambda message: message.text == "📚 Получить задачу")
 async def send_task(message: types.Message, state: FSMContext):
+    """Отправляет новую задачу пользователю"""
     try:
         logger.info(f"User {message.from_user.id} requesting task")
-        current_state = await state.get_state()
         data = await state.get_data()
-        logger.info(f"User state: {current_state}, data: {data}")
         
         exam_type = data.get('exam_type')
         level = data.get('level')
@@ -260,7 +300,9 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        problem = get_problem(exam_type, level)
+        # Используем TaskManager для получения задачи
+        problem = task_manager.get_new_task(exam_type, level)
+        
         if not problem:
             await message.answer(
                 "😔 Не удалось найти задачу. Попробуйте другой тип экзамена.",
@@ -268,13 +310,17 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        await state.update_data(current_problem=problem)
-        task_message = (
-            f"{problem['topic']} ({exam_type}, {level})\n"
-            f"Сложность: {'⭐' * problem['complexity']}\n\n"
-            f"{problem['text']}\n\n"
-            f"✏️ Введите ответ:"
+        # Сохраняем только необходимые данные в состоянии
+        await state.update_data(
+            current_problem={
+                'id': problem['id'],
+                'answer': problem['answer'],
+                'topic': problem['topic'],
+                'hint': problem.get('hint', 'Подсказка недоступна')
+            }
         )
+
+        task_message = await format_task_message(problem)
         await message.answer(task_message, reply_markup=main_menu)
         
     except Exception as e:
