@@ -5,6 +5,7 @@ import random
 from sqlite3 import Error
 from pathlib import Path
 import math
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -21,73 +22,83 @@ def get_db():
 
 
 def init_db():
-    """Инициализирует базу данных"""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS problems (
-                id INTEGER PRIMARY KEY,
-                topic TEXT NOT NULL,
-                text TEXT NOT NULL,
-                answer TEXT NOT NULL,
-                exam_type TEXT NOT NULL,
-                level TEXT NOT NULL,
-                complexity INTEGER NOT NULL,
-                hint TEXT
-            )
-        ''')
+    """Инициализация базы данных"""
+    db_path = Path(__file__).parent.parent / "data" / "math_problems.db"
+    db_path.parent.mkdir(exist_ok=True)  # создаем директорию, если её нет
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Создаем таблицу, если её нет
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS problems (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        topic TEXT,
+        text TEXT,
+        answer TEXT,
+        answer_type TEXT,
+        exam_type TEXT,
+        level TEXT,
+        complexity INTEGER,
+        hint TEXT
+    )
+    ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_stats (
+        user_id INTEGER PRIMARY KEY,
+        total_attempts INTEGER DEFAULT 0,
+        solved INTEGER DEFAULT 0,
+        xp INTEGER DEFAULT 0
+    )
+    ''')
 
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_stats (
-                user_id INTEGER PRIMARY KEY,
-                total_attempts INTEGER DEFAULT 0,
-                solved INTEGER DEFAULT 0,
-                xp INTEGER DEFAULT 0
-            )
-        ''')
+    # Новая таблица для достижений
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS achievements (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        condition_type TEXT NOT NULL,
+        condition_value INTEGER NOT NULL,
+        icon TEXT NOT NULL
+    )
+    ''')
 
-        # Новая таблица для достижений
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS achievements (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL,
-                condition_type TEXT NOT NULL,
-                condition_value INTEGER NOT NULL,
-                icon TEXT NOT NULL
-            )
-        ''')
+    # Таблица для хранения полученных достижений пользователей
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_achievements (
+        user_id INTEGER,
+        achievement_id INTEGER,
+        obtained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, achievement_id),
+        FOREIGN KEY (achievement_id) REFERENCES achievements (id)
+    )
+    ''')
 
-        # Таблица для хранения полученных достижений пользователей
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_achievements (
-                user_id INTEGER,
-                achievement_id INTEGER,
-                obtained_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (user_id, achievement_id),
-                FOREIGN KEY (achievement_id) REFERENCES achievements (id)
-            )
-        ''')
+    # Добавляем базовые достижения, если их нет
+    cursor.execute(
+        'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+        ("Первые шаги", "Решите первую задачу", "solved", 1, "🎯"))
+    cursor.execute(
+        'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+        ("Начинающий математик", "Решите 10 задач", "solved", 10, "🎓"))
+    cursor.execute(
+        'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+        ("Опытный решатель", "Решите 50 задач", "solved", 50, "🏆"))
+    cursor.execute(
+        'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+        ("Мастер математики", "Решите 100 задач", "solved", 100, "👑"))
+    cursor.execute(
+        'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+        ("Точность 80%", "Достигните точности решения 80%", "accuracy", 80, "🎯"))
+    cursor.execute(
+        'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
+        ("Точность 90%", "Достигните точности решения 90%", "accuracy", 90, "🎯"))
 
-        # Добавляем базовые достижения, если их нет
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Первые шаги", "Решите первую задачу", "solved", 1, "🎯"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Начинающий математик", "Решите 10 задач", "solved", 10, "🎓"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Опытный решатель", "Решите 50 задач", "solved", 50, "🏆"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Мастер математики", "Решите 100 задач", "solved", 100, "👑"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Точность 80%", "Достигните точности решения 80%", "accuracy", 80, "🎯"))
-        cursor.execute(
-            'INSERT OR IGNORE INTO achievements (name, description, condition_type, condition_value, icon) VALUES (?, ?, ?, ?, ?)',
-            ("Точность 90%", "Достигните точности решения 90%", "accuracy", 90, "🎯"))
+    conn.commit()
+    conn.close()
+    print(f"База данных инициализирована: {db_path}")
 
 
 def get_random_problem(exam_type: str, level: str, last_topic: str = None) -> Optional[Dict]:
@@ -139,21 +150,37 @@ def get_random_problem(exam_type: str, level: str, last_topic: str = None) -> Op
         return None
 
 
-def add_bulk_problems(problems: List[Dict]):
-    """Добавляет список задач в базу данных"""
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.executemany(
-                """
-                INSERT INTO problems (topic, text, answer, exam_type, level, complexity, hint)
-                VALUES (:topic, :text, :answer, :exam_type, :level, :complexity, :hint)
-                """,
-                problems
-            )
-            logger.info(f"Added {len(problems)} problems to database")
-    except Exception as e:
-        logger.error(f"Error adding problems: {e}")
+def add_bulk_problems(problems: list):
+    """Добавление списка задач в базу данных"""
+    db_path = Path(__file__).parent.parent / "data" / "math_problems.db"
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Подготовка данных для вставки
+    problems_data = []
+    for p in problems:
+        # Преобразуем список ответов в JSON для trig_multi
+        answer = json.dumps(p['answer']) if isinstance(p['answer'], list) else p['answer']
+        
+        problems_data.append((
+            p['topic'],
+            p['text'],
+            answer,
+            p.get('answer_type', 'string'),  # добавляем тип ответа
+            p['exam_type'],
+            p['level'],
+            p['complexity'],
+            p['hint']
+        ))
+    
+    # Вставка данных
+    cursor.executemany('''
+    INSERT INTO problems (topic, text, answer, answer_type, exam_type, level, complexity, hint)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', problems_data)
+    
+    conn.commit()
+    conn.close()
 
 
 def get_user_level(solved: int, accuracy: float) -> dict:

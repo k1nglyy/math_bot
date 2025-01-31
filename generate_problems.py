@@ -311,37 +311,35 @@ def generate_basic_logarithm(exam_type: str, level: str) -> dict:
 def generate_basic_trig(exam_type: str, level: str) -> dict:
     """Генерирует простые тригонометрические задания"""
     angles = {
-        0: {"sin": ("0", "0"), "cos": ("1", "1")},
-        30: {"sin": ("1/2", "0.5"), "cos": ("√3/2", "0.866")},
-        45: {"sin": ("√2/2", "0.707"), "cos": ("√2/2", "0.707")},
-        60: {"sin": ("√3/2", "0.866"), "cos": ("1/2", "0.5")},
-        90: {"sin": ("1", "1"), "cos": ("0", "0")}
+        0: {"sin": "0", "cos": "1"},
+        30: {"sin": "1/2", "cos": "√3/2"},
+        45: {"sin": "√2/2", "cos": "√2/2"},
+        60: {"sin": "√3/2", "cos": "1/2"},
+        90: {"sin": "1", "cos": "0"}
     }
     
     angle = random.choice(list(angles.keys()))
     func = random.choice(['sin', 'cos'])
-    exact_answer, decimal_answer = angles[angle][func]
+    answer = angles[angle][func]  # теперь храним один ответ
 
     return {
         "topic": "Тригонометрия",
-        "text": f"Вычислите {func}({angle}°)\nОтвет можно дать как в точном виде ({exact_answer}), так и в десятичном ({decimal_answer})",
-        "answer": [exact_answer, decimal_answer],
-        "answer_type": "trig_multi",  # тип ответа - принимает несколько форматов
+        "text": f"Вычислите {func}({angle}°)",
+        "answer": answer,  # один ответ вместо списка
+        "answer_type": "trig",  # изменен тип ответа
         "exam_type": exam_type,
         "level": level,
         "complexity": 2,
-        "hint": f"Табличное значение: {func}({angle}°) = {exact_answer} ≈ {decimal_answer}"
+        "hint": f"Табличное значение: {func}({angle}°) = {answer}"
     }
 
 
 def generate_problems():
-    # Инициализируем базу данных
     init_db()
     problems = []
+    
+    TASKS_PER_CATEGORY = 20
 
-    TASKS_PER_CATEGORY = 20  # Устанавливаем одинаковое количество задач для каждой категории
-
-    # Генерация задач для каждого типа экзамена и уровня
     for exam_type in ["ЕГЭ", "ОГЭ"]:
         levels = ["база", "профиль"] if exam_type == "ЕГЭ" else ["база"]
         for level in levels:
@@ -364,26 +362,25 @@ def generate_problems():
                     problems.append(generate_probability_simple(exam_type, level))
                     problems.append(generate_statistics_problem(exam_type, level))
 
+    # Добавляем проверку количества сгенерированных задач
+    print(f"\nСгенерировано задач:")
+    exam_counts = {}
+    for p in problems:
+        key = f"{p['exam_type']} ({p['level']})"
+        exam_counts[key] = exam_counts.get(key, 0) + 1
+    
+    for exam, count in exam_counts.items():
+        print(f"- {exam}: {count} задач")
+
     # Добавляем все задачи в базу данных
     add_bulk_problems(problems)
-    print(f"✅ Добавлено {len(problems)} задач в базу данных!")
-    print("\nРаспределение задач:")
-    topics = {}
-    for p in problems:
-        topic = p['topic']
-        exam = p['exam_type']
-        level = p['level']
-        key = f"{topic} ({exam}, {level})"
-        topics[key] = topics.get(key, 0) + 1
-
-    for topic, count in sorted(topics.items()):
-        print(f"- {topic}: {count} задач")
+    print(f"\n✅ Добавлено {len(problems)} задач в базу данных!")
 
 
 # Функция проверки ответа
 def check_answer(problem: dict, user_answer: str) -> bool:
     """Проверяет ответ пользователя с учетом типа ответа"""
-    answer_type = problem.get("answer_type", "string")  # по умолчанию строковое сравнение
+    answer_type = problem.get("answer_type", "string")
     
     if answer_type == "integer":
         try:
@@ -397,11 +394,40 @@ def check_answer(problem: dict, user_answer: str) -> bool:
         except ValueError:
             return False
             
-    elif answer_type == "trig_multi":
-        # Для тригонометрических задач принимаем оба варианта ответа
-        answers = problem["answer"]
+    elif answer_type == "trig":
+        # Нормализуем ответ пользователя
         user_answer = user_answer.replace(" ", "").lower()
-        return any(ans.replace(" ", "").lower() == user_answer for ans in answers)
+        correct_answer = problem["answer"].replace(" ", "").lower()
+        
+        # Проверяем точное совпадение
+        if user_answer == correct_answer:
+            return True
+            
+        # Проверяем числовое значение, если возможно
+        try:
+            if "√" in correct_answer:
+                # Преобразуем √2/2 в 0.707, √3/2 в 0.866 и т.д.
+                if "√2/2" in correct_answer:
+                    correct_value = 0.707
+                elif "√3/2" in correct_answer:
+                    correct_value = 0.866
+                else:
+                    return user_answer == correct_answer
+                
+                user_value = float(user_answer)
+                return abs(user_value - correct_value) < 0.01
+            
+            # Для простых дробей (например, 1/2)
+            if "/" in correct_answer:
+                num, den = map(int, correct_answer.split("/"))
+                correct_value = num / den
+                user_value = float(user_answer)
+                return abs(user_value - correct_value) < 0.01
+                
+        except (ValueError, ZeroDivisionError):
+            pass
+            
+        return False
             
     # Для остальных типов - строгое строковое сравнение
     return user_answer.strip() == problem["answer"].strip()
