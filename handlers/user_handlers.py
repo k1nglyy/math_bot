@@ -4,7 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from utils.database import (
-    get_random_problem,
+    get_problem,
     update_user_stats,
     get_user_stats,
     get_user_achievements,
@@ -253,7 +253,7 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        problem = get_random_problem(exam_type, level)
+        problem = get_problem(exam_type, level)
         if not problem:
             await message.answer(
                 "😔 Не удалось найти задачу. Попробуйте другой тип экзамена.",
