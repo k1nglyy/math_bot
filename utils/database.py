@@ -757,33 +757,41 @@ def get_adaptive_problem(exam_type: str, level: str, last_topic: str = None, use
 
 def init_stats_db():
     """Инициализация базы данных статистики"""
-    db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
-    db_path.parent.mkdir(exist_ok=True)
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # Создаем таблицу статистики, если её нет
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS user_stats (
-        user_id INTEGER PRIMARY KEY,
-        total_attempts INTEGER DEFAULT 0,
-        solved INTEGER DEFAULT 0,
-        current_streak INTEGER DEFAULT 0,
-        max_streak INTEGER DEFAULT 0,
-        last_answer_time TIMESTAMP,
-        achievements TEXT DEFAULT '[]'
-    )
-    ''')
-    
-    conn.commit()
-    conn.close()
+    try:
+        db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+        db_path.parent.mkdir(exist_ok=True)
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_stats (
+            user_id INTEGER PRIMARY KEY,
+            total_attempts INTEGER DEFAULT 0,
+            solved INTEGER DEFAULT 0,
+            current_streak INTEGER DEFAULT 0,
+            max_streak INTEGER DEFAULT 0,
+            last_answer_time TIMESTAMP,
+            achievements TEXT DEFAULT '[]'
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("Stats database initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing stats database: {e}")
 
 
 def get_user_stats(user_id: int) -> dict:
     """Получение статистики пользователя"""
     try:
         db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+        
+        # Инициализируем базу, если её нет
+        if not db_path.exists():
+            init_stats_db()
+        
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
@@ -792,10 +800,12 @@ def get_user_stats(user_id: int) -> dict:
         INSERT OR IGNORE INTO user_stats (user_id, total_attempts, solved)
         VALUES (?, 0, 0)
         ''', (user_id,))
+        conn.commit()
         
         # Получаем статистику
         cursor.execute('SELECT total_attempts, solved FROM user_stats WHERE user_id = ?', (user_id,))
         stats = cursor.fetchone()
+        conn.close()
         
         if not stats:
             return {
@@ -813,7 +823,6 @@ def get_user_stats(user_id: int) -> dict:
         # Определяем ранг и уровень
         rank, level, progress = calculate_rank(solved, accuracy)
         
-        conn.close()
         return {
             'total_attempts': total_attempts,
             'solved': solved,
@@ -839,6 +848,11 @@ def update_user_stats(user_id: int, is_correct: bool):
     """Обновление статистики пользователя"""
     try:
         db_path = Path(__file__).parent.parent / "data" / "user_stats.db"
+        
+        # Инициализируем базу, если её нет
+        if not db_path.exists():
+            init_stats_db()
+        
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
@@ -853,18 +867,21 @@ def update_user_stats(user_id: int, is_correct: bool):
             cursor.execute('''
             UPDATE user_stats 
             SET total_attempts = total_attempts + 1,
-                solved = solved + 1
+                solved = solved + 1,
+                last_answer_time = CURRENT_TIMESTAMP
             WHERE user_id = ?
             ''', (user_id,))
         else:
             cursor.execute('''
             UPDATE user_stats 
-            SET total_attempts = total_attempts + 1
+            SET total_attempts = total_attempts + 1,
+                last_answer_time = CURRENT_TIMESTAMP
             WHERE user_id = ?
             ''', (user_id,))
         
         conn.commit()
         conn.close()
+        logger.info(f"Updated stats for user {user_id}, correct: {is_correct}")
         
     except Exception as e:
         logger.error(f"Error updating user stats: {e}")

@@ -320,9 +320,63 @@ async def go_back(message: types.Message, state: FSMContext):
 
 @router.message(lambda message: message.text == "📊 Статистика")
 async def show_stats(message: types.Message):
-    stats = get_user_stats(message.from_user.id)
-    stats_message = await format_stats_message(stats)
-    await message.answer(stats_message, parse_mode="Markdown", reply_markup=main_menu)
+    """Показывает статистику пользователя"""
+    try:
+        logger.info(f"User {message.from_user.id} requested stats")
+        stats = get_user_stats(message.from_user.id)
+        
+        # Прогресс-бар
+        progress = min(100, stats.get('progress', 0))
+        progress_bar_length = 10
+        filled = int(progress * progress_bar_length / 100)
+        progress_bar = "▰" * filled + "▱" * (progress_bar_length - filled)
+
+        stats_message = (
+            f"📊 *Ваша статистика:*\n\n"
+            f"{stats.get('rank', '🌱 Новичок')}\n"
+            f"Уровень: {stats.get('level', 1)} {progress_bar} {progress}%\n\n"
+            f"📝 Всего попыток: `{stats.get('total_attempts', 0)}`\n"
+            f"✅ Решено задач: `{stats.get('solved', 0)}`\n"
+            f"🎯 Точность: `{stats.get('accuracy', 0)}%`\n\n"
+        )
+
+        # Добавляем мотивационное сообщение
+        accuracy = stats.get('accuracy', 0)
+        if accuracy >= 90:
+            stats_message += "🌟 _Великолепная точность! Вы настоящий профессионал!_\n"
+        elif accuracy >= 80:
+            stats_message += "✨ _Отличный результат! Продолжайте в том же духе!_\n"
+        elif accuracy >= 70:
+            stats_message += "💫 _Хорошая работа! Вы на верном пути!_\n"
+        else:
+            stats_message += "💪 _Практика ведет к совершенству! Не сдавайтесь!_\n"
+
+        # Добавляем информацию о следующем ранге
+        ranks = {
+            "🌱 Новичок": ("📚 Ученик", "решите больше задач"),
+            "📚 Ученик": ("🎯 Практик", "достигните точности 70%"),
+            "🎯 Практик": ("💫 Знаток", "достигните точности 75%"),
+            "💫 Знаток": ("🏆 Мастер", "достигните точности 80%"),
+            "🏆 Мастер": ("👑 Гроссмейстер", "достигните точности 85%"),
+            "👑 Гроссмейстер": ("⭐ Легенда", "достигните точности 90%"),
+            "⭐ Легенда": ("🌟 Профессор", "достигните точности 95%"),
+        }
+
+        current_rank = stats.get('rank', "🌱 Новичок")
+        if current_rank in ranks:
+            next_rank, requirement = ranks[current_rank]
+            stats_message += f"\n📈 До звания {next_rank}: {requirement}"
+
+        logger.info(f"Sending stats to user {message.from_user.id}: {stats}")
+        await message.answer(stats_message, parse_mode="Markdown", reply_markup=main_menu)
+
+    except Exception as e:
+        logger.error(f"Error showing stats: {e}")
+        await message.answer(
+            "😔 Произошла ошибка при получении статистики.\n"
+            "Попробуйте позже.",
+            reply_markup=main_menu
+        )
 
 
 @router.message(lambda message: message.text == "🏆 Достижения")
