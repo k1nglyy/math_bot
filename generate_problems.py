@@ -333,6 +333,101 @@ def generate_basic_trig(exam_type: str, level: str) -> dict:
     }
 
 
+def generate_geometry_base_problem(exam_type: str, level: str) -> dict:
+    """Генерация базовых геометрических задач"""
+    tasks = [
+        {
+            "generator": lambda: {
+                "radius": random.randint(3, 10),
+                "text": "Найдите длину окружности с радиусом {radius} см.\nЧисло π округлите до 3.14",
+                "answer": lambda radius: str(round(2 * 3.14 * radius, 2)),
+                "hint": "Длина окружности = 2πR"
+            }
+        },
+        {
+            "generator": lambda: {
+                "side": random.randint(3, 12),
+                "text": "Найдите площадь квадрата со стороной {side} см",
+                "answer": lambda side: str(side * side),
+                "hint": "Площадь квадрата = a²"
+            }
+        },
+        {
+            "generator": lambda: {
+                "a": random.randint(3, 10),
+                "b": random.randint(3, 10),
+                "text": "Найдите площадь прямоугольника со сторонами {a} см и {b} см",
+                "answer": lambda a, b: str(a * b),
+                "hint": "Площадь прямоугольника = a·b"
+            }
+        }
+    ]
+
+    task = random.choice(tasks)
+    params = task["generator"]()
+    values = {k: v for k, v in params.items() if k not in ["text", "answer", "hint"]}
+
+    return {
+        "topic": "Геометрия",
+        "text": params["text"].format(**values),
+        "answer": params["answer"](**values),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": random.randint(1, 2),
+        "hint": params["hint"]
+    }
+
+
+def generate_geometry_profile_problem(exam_type: str, level: str) -> dict:
+    """Генерация профильных геометрических задач"""
+    tasks = [
+        {
+            "generator": lambda: {
+                "angle": random.choice([30, 45, 60]),
+                "hypotenuse": random.randint(4, 12),
+                "text": "В прямоугольном треугольнике гипотенуза равна {hypotenuse} см, "
+                        "один из острых углов равен {angle}°. "
+                        "Найдите катет, прилежащий к данному углу.",
+                "answer": lambda angle, hypotenuse: str(round(hypotenuse * math.cos(math.radians(angle)), 2)),
+                "hint": "Используйте формулу: прилежащий катет = гипотенуза · cos(угол)"
+            }
+        },
+        {
+            "generator": lambda: {
+                "radius": random.randint(3, 8),
+                "angle": random.choice([30, 45, 60, 90, 120]),
+                "text": "Найдите площадь сектора круга радиусом {radius} см "
+                        "с центральным углом {angle}°.\nЧисло π округлите до 3.14",
+                "answer": lambda radius, angle: str(round(3.14 * radius * radius * angle / 360, 2)),
+                "hint": "Площадь сектора = πR²·α/360°"
+            }
+        },
+        {
+            "generator": lambda: {
+                "side": random.randint(4, 10),
+                "text": "В правильном шестиугольнике со стороной {side} см "
+                        "найдите расстояние от центра до стороны.",
+                "answer": lambda side: str(round(side * math.sqrt(3) / 2, 2)),
+                "hint": "Радиус вписанной окружности = a·√3/2, где a - сторона"
+            }
+        }
+    ]
+
+    task = random.choice(tasks)
+    params = task["generator"]()
+    values = {k: v for k, v in params.items() if k not in ["text", "answer", "hint"]}
+
+    return {
+        "topic": "Геометрия",
+        "text": params["text"].format(**values),
+        "answer": params["answer"](**values),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": random.randint(2, 3),
+        "hint": params["hint"]
+    }
+
+
 def generate_problems():
     init_db()
     problems = []
@@ -342,38 +437,31 @@ def generate_problems():
     for exam_type in ["ЕГЭ", "ОГЭ"]:
         levels = ["база", "профиль"] if exam_type == "ЕГЭ" else ["база"]
         for level in levels:
+            # Алгебра
+            for _ in range(TASKS_PER_CATEGORY // 3):
+                problems.append(generate_nice_quadratic(exam_type, level))
+                problems.append(generate_linear_equation(exam_type, level))
+                problems.append(generate_progression_problem(exam_type, level))
+
+            # Геометрия
             if exam_type == "ЕГЭ":
-                # Добавляем новые типы заданий для ЕГЭ
+                if level == "база":
+                    for _ in range(TASKS_PER_CATEGORY):
+                        problems.append(generate_geometry_base_problem(exam_type, level))
+                else:  # профиль
+                    for _ in range(TASKS_PER_CATEGORY):
+                        problems.append(generate_geometry_profile_problem(exam_type, level))
+            else:  # ОГЭ
                 for _ in range(TASKS_PER_CATEGORY):
-                    problems.append(generate_basic_exponential(exam_type, level))
-                    problems.append(generate_basic_logarithm(exam_type, level))
-                    problems.append(generate_basic_trig(exam_type, level))
+                    problems.append(generate_geometry_base_problem(exam_type, level))
 
-            # Базовые задания теперь только для ОГЭ
-            if exam_type == "ОГЭ":
-                for _ in range(TASKS_PER_CATEGORY // 3):
-                    problems.append(generate_nice_quadratic(exam_type, level))
-                    problems.append(generate_linear_equation(exam_type, level))
-                    problems.append(generate_progression_problem(exam_type, level))
-                    problems.append(generate_circle_problem(exam_type, level))
-                    problems.append(generate_triangle_problem(exam_type, level))
-                    problems.append(generate_rectangle_problem(exam_type, level))
-                    problems.append(generate_probability_simple(exam_type, level))
-                    problems.append(generate_statistics_problem(exam_type, level))
+            # Теория вероятностей и статистика
+            for _ in range(TASKS_PER_CATEGORY // 2):
+                problems.append(generate_probability_simple(exam_type, level))
+                problems.append(generate_statistics_problem(exam_type, level))
 
-    # Добавляем проверку количества сгенерированных задач
-    print(f"\nСгенерировано задач:")
-    exam_counts = {}
-    for p in problems:
-        key = f"{p['exam_type']} ({p['level']})"
-        exam_counts[key] = exam_counts.get(key, 0) + 1
-
-    for exam, count in exam_counts.items():
-        print(f"- {exam}: {count} задач")
-
-    # Добавляем все задачи в базу данных
+    random.shuffle(problems)
     add_bulk_problems(problems)
-    print(f"\n✅ Добавлено {len(problems)} задач в базу данных!")
 
 
 # Функция проверки ответа
