@@ -1,40 +1,15 @@
-import asyncio
-import logging
-
 from aiogram import Bot, Dispatcher
-from config_data.config import Config, load_config
-from handlers import user_handlers
+from aiogram.fsm.storage.memory import MemoryStorage
+from handlers.user_handlers import router
+import config
 
-# Инициализируем логгер
-logger = logging.getLogger(__name__)
-
-
-# Функция конфигурирования и запуска бота
 async def main():
-    # Конфигурируем логирование
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(filename)s:%(lineno)d #%(levelname)-8s '
-               '[%(asctime)s] - %(name)s - %(message)s')
-
-    # Выводим в консоль информацию о начале запуска бота
-    logger.info('Starting bot')
-
-    # Загружаем конфиг в переменную config
-    config: Config = load_config()
-
-    # Инициализируем бот и диспетчер
-    bot = Bot(token=config.tg_bot.token,
-             parse_mode='HTML')
-    dp = Dispatcher()
-
-    # Регистриуем роутеры в диспетчере
-    dp.include_router(user_handlers.router)
-
-    # Пропускаем накопившиеся апдейты и запускаем polling
-    await bot.delete_webhook(drop_pending_updates=True)
+    bot = Bot(token=config.BOT_TOKEN)
+    storage = MemoryStorage()
+    dp = Dispatcher(storage=storage)
+    dp.include_router(router)
     await dp.start_polling(bot)
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
