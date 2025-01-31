@@ -225,11 +225,19 @@ def generate_statistics_problem(exam_type: str, level: str) -> dict:
     task_variants = [
         f"В таблице приведены результаты измерений: {', '.join(map(str, numbers))}.\nНайдите среднее арифметическое этих чисел.",
         f"Спортсмен пробежал {count} кругов по стадиону. Время каждого круга (в минутах): {', '.join(map(str, numbers))}.\nНайдите среднее время одного круга.",
-        f"Ученик получил {count} оценок: {', '.join(map(str, numbers))}.\nКакой средний балл получился у ученика?",
         f"Датчик температуры делал замеры каждый час: {', '.join(map(str, numbers))}.\nОпределите среднюю температуру за период наблюдений."
     ]
-
-    task_text = random.choice(task_variants)
+    
+    # Отдельно генерируем вариант с оценками
+    if random.random() < 0.25:  # 25% шанс получить задачу с оценками
+        # Генерируем оценки от 2 до 5
+        grade_numbers = [random.randint(2, 5) for _ in range(count)]
+        grade_mean = round(sum(grade_numbers) / len(grade_numbers), 1)
+        task_text = f"Ученик получил {count} оценок: {', '.join(map(str, grade_numbers))}.\nКакой средний балл получился у ученика?"
+        numbers = grade_numbers
+        mean = grade_mean
+    else:
+        task_text = random.choice(task_variants)
 
     return {
         "topic": "Статистика",
