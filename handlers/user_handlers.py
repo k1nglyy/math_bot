@@ -15,6 +15,11 @@ import logging
 from datetime import datetime
 from typing import List, Dict
 import random
+from generate_problems import (
+    generate_basic_exponential,
+    generate_basic_logarithm,
+    generate_basic_trig
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -369,17 +374,19 @@ async def format_achievements_message(achievements: List[Dict]) -> str:
 
 
 @router.message(Command("start"))
-async def cmd_start(message: types.Message):
-    welcome_text = (
-        "👋 *Добро пожаловать в Math Bot!*\n\n"
+async def cmd_start(message: types.Message, state: FSMContext):
+    """Начало работы с ботом"""
+    await state.clear()  # Очищаем состояние
+    await message.answer(
+        "👋 Добро пожаловать в Math Bot!\n\n"
         "Я помогу вам подготовиться к экзаменам по математике.\n\n"
         "🔹 Выбирайте тип экзамена\n"
         "🔹 Решайте задачи\n"
         "🔹 Следите за прогрессом\n"
         "🔹 Получайте достижения\n\n"
-        "Начнем? Выберите действие в меню! 👇"
+        "Начнем? Выберите действие в меню! 👇",
+        reply_markup=main_menu
     )
-    await message.answer(welcome_text, parse_mode="Markdown", reply_markup=main_menu)
 
 
 @router.message(lambda message: message.text == "📝 Выбрать экзамен")
@@ -455,6 +462,8 @@ async def send_task(message: types.Message, state: FSMContext):
         exam_type = data.get('exam_type')
         level = data.get('level')
 
+        logger.info(f"Getting task for exam_type={exam_type}, level={level}")
+
         if not exam_type or not level:
             await message.answer(
                 "⚠️ Сначала выберите тип экзамена!",
@@ -463,17 +472,38 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        # Получаем задачу
-        problem = get_problem(exam_type, level)
+        # Нормализуем значения
+        exam_type = "ЕГЭ" if exam_type == "📚 ЕГЭ" else "ОГЭ"
+        level = "профиль" if level == "📗 Профиль" else "база"
+
+        # Временное решение: генерируем задачу напрямую
+        if exam_type == "ЕГЭ" and level == "профиль":
+            # Выбираем случайный тип задачи
+            task_generators = [
+                generate_basic_exponential,
+                generate_basic_logarithm,
+                generate_basic_trig
+            ]
+            problem = random.choice(task_generators)(exam_type, level)
+        else:
+            problem = get_problem(exam_type, level)
         
         if not problem:
             await message.answer(
-                "😔 Не удалось найти задачу. Попробуйте другой тип экзамена.",
+                "😔 Не удалось найти задачу. Попробуйте перезапустить бота командой /start",
                 reply_markup=main_menu,
                 parse_mode="Markdown"
             )
             logger.error(f"No problem found for exam_type={exam_type}, level={level}")
             return
+
+        # Добавляем отсутствующие поля, если их нет
+        if 'answer_type' not in problem:
+            problem['answer_type'] = 'string'
+        if 'id' not in problem:
+            problem['id'] = str(random.randint(1000, 9999))
+        if 'complexity' not in problem:
+            problem['complexity'] = 2
 
         # Сохраняем задачу в состоянии
         await state.update_data(current_problem=problem)
@@ -490,9 +520,13 @@ async def send_task(message: types.Message, state: FSMContext):
         logger.info(f"Sent problem {problem.get('id', 'unknown')} to user {message.from_user.id}")
         
     except Exception as e:
-        logger.error(f"Error in send_task: {e}")
+        logger.error(f"Error in send_task: {e}", exc_info=True)
         await message.answer(
-            "😔 Произошла ошибка при получении задачи. Попробуйте еще раз.",
+            "😔 Произошла ошибка при получении задачи.\n"
+            "Попробуйте:\n"
+            "1. Перезапустить бота командой /start\n"
+            "2. Заново выбрать экзамен и уровень\n"
+            "3. Получить задачу",
             reply_markup=main_menu,
             parse_mode="Markdown"
         )
