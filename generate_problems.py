@@ -255,6 +255,82 @@ def generate_statistics_problem(exam_type: str, level: str) -> dict:
     }
 
 
+def generate_basic_exponential(exam_type: str, level: str) -> dict:
+    """Генерирует простое показательное уравнение вида a^x = b"""
+    base = random.randint(2, 5)
+    power = random.randint(1, 4)
+    result = base ** power
+
+    equation = f"{base}^x = {result}"
+
+    hint = (
+        f"1) Используйте определение логарифма\n"
+        f"2) x = log_{base}({result})\n"
+        f"3) Так как {base}^{power} = {result}\n"
+        f"4) x = {power}"
+    )
+
+    return {
+        "topic": "Показательные уравнения",
+        "text": f"Решите уравнение: {equation}",
+        "answer": str(power),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": 1,
+        "hint": hint
+    }
+
+
+def generate_basic_logarithm(exam_type: str, level: str) -> dict:
+    """Генерирует задание на вычисление логарифма"""
+    base = random.randint(2, 5)
+    power = random.randint(1, 4)
+    number = base ** power
+
+    question = f"log_{base}({number})"
+
+    hint = (
+        f"1) По определению логарифма: log_a(b) = c, если a^c = b\n"
+        f"2) В нашем случае: {base}^{power} = {number}\n"
+        f"3) Значит, log_{base}({number}) = {power}"
+    )
+
+    return {
+        "topic": "Логарифмы",
+        "text": f"Вычислите: {question}",
+        "answer": str(power),
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": 1,
+        "hint": hint
+    }
+
+
+def generate_basic_trig(exam_type: str, level: str) -> dict:
+    """Генерирует простые тригонометрические задания"""
+    angles = {
+        0: {"sin": "0", "cos": "1"},
+        30: {"sin": "1/2", "cos": "√3/2"},
+        45: {"sin": "√2/2", "cos": "√2/2"},
+        60: {"sin": "√3/2", "cos": "1/2"},
+        90: {"sin": "1", "cos": "0"}
+    }
+    
+    angle = random.choice(list(angles.keys()))
+    func = random.choice(['sin', 'cos'])
+    answer = angles[angle][func]
+
+    return {
+        "topic": "Тригонометрия",
+        "text": f"Вычислите {func}({angle}°)",
+        "answer": answer,
+        "exam_type": exam_type,
+        "level": level,
+        "complexity": 2,
+        "hint": f"Используйте табличное значение: {func}({angle}°) = {answer}"
+    }
+
+
 def generate_problems():
     # Инициализируем базу данных
     init_db()
@@ -266,22 +342,24 @@ def generate_problems():
     for exam_type in ["ЕГЭ", "ОГЭ"]:
         levels = ["база", "профиль"] if exam_type == "ЕГЭ" else ["база"]
         for level in levels:
-            # Алгебра
-            for _ in range(TASKS_PER_CATEGORY // 3):
-                problems.append(generate_nice_quadratic(exam_type, level))
-                problems.append(generate_linear_equation(exam_type, level))
-                problems.append(generate_progression_problem(exam_type, level))
-
-            # Геометрия
-            for _ in range(TASKS_PER_CATEGORY // 3):
-                problems.append(generate_circle_problem(exam_type, level))
-                problems.append(generate_triangle_problem(exam_type, level))
-                problems.append(generate_rectangle_problem(exam_type, level))
-
-            # Теория вероятностей и статистика
-            for _ in range(TASKS_PER_CATEGORY // 2):
-                problems.append(generate_probability_simple(exam_type, level))
-                problems.append(generate_statistics_problem(exam_type, level))
+            if exam_type == "ЕГЭ":
+                # Добавляем новые типы заданий для ЕГЭ
+                for _ in range(TASKS_PER_CATEGORY):
+                    problems.append(generate_basic_exponential(exam_type, level))
+                    problems.append(generate_basic_logarithm(exam_type, level))
+                    problems.append(generate_basic_trig(exam_type, level))
+            
+            # Базовые задания теперь только для ОГЭ
+            if exam_type == "ОГЭ":
+                for _ in range(TASKS_PER_CATEGORY // 3):
+                    problems.append(generate_nice_quadratic(exam_type, level))
+                    problems.append(generate_linear_equation(exam_type, level))
+                    problems.append(generate_progression_problem(exam_type, level))
+                    problems.append(generate_circle_problem(exam_type, level))
+                    problems.append(generate_triangle_problem(exam_type, level))
+                    problems.append(generate_rectangle_problem(exam_type, level))
+                    problems.append(generate_probability_simple(exam_type, level))
+                    problems.append(generate_statistics_problem(exam_type, level))
 
     # Добавляем все задачи в базу данных
     add_bulk_problems(problems)
