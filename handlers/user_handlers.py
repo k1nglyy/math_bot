@@ -514,10 +514,6 @@ async def check_answer(message: types.Message, state: FSMContext):
                 for ach in new_achievements:
                     achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
                 await message.answer(achievements_text, parse_mode="Markdown")
-            
-            # Показываем статистику
-            await show_stats(message)
-            
         else:
             hint_text = (
                 f"❌ *Неверно*\n\n"
@@ -526,7 +522,10 @@ async def check_answer(message: types.Message, state: FSMContext):
                 f"💡 *Подсказка:*\n{problem['hint']}"
             )
             await message.answer(hint_text, parse_mode="Markdown", reply_markup=main_menu)
-        
+            
+        # Показываем статистику в любом случае
+        await show_stats(message)
+            
         # Получаем новую задачу
         await send_task(message, state)
         
