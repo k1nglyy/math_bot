@@ -274,6 +274,7 @@ def generate_basic_exponential(exam_type: str, level: str) -> dict:
         "topic": "Показательные уравнения",
         "text": f"Решите уравнение: {equation}",
         "answer": str(power),
+        "answer_type": "integer",  # тип ответа - целое число
         "exam_type": exam_type,
         "level": level,
         "complexity": 1,
@@ -299,6 +300,7 @@ def generate_basic_logarithm(exam_type: str, level: str) -> dict:
         "topic": "Логарифмы",
         "text": f"Вычислите: {question}",
         "answer": str(power),
+        "answer_type": "integer",  # тип ответа - целое число
         "exam_type": exam_type,
         "level": level,
         "complexity": 1,
@@ -309,25 +311,26 @@ def generate_basic_logarithm(exam_type: str, level: str) -> dict:
 def generate_basic_trig(exam_type: str, level: str) -> dict:
     """Генерирует простые тригонометрические задания"""
     angles = {
-        0: {"sin": "0", "cos": "1"},
-        30: {"sin": "1/2", "cos": "√3/2"},
-        45: {"sin": "√2/2", "cos": "√2/2"},
-        60: {"sin": "√3/2", "cos": "1/2"},
-        90: {"sin": "1", "cos": "0"}
+        0: {"sin": ("0", "0"), "cos": ("1", "1")},
+        30: {"sin": ("1/2", "0.5"), "cos": ("√3/2", "0.866")},
+        45: {"sin": ("√2/2", "0.707"), "cos": ("√2/2", "0.707")},
+        60: {"sin": ("√3/2", "0.866"), "cos": ("1/2", "0.5")},
+        90: {"sin": ("1", "1"), "cos": ("0", "0")}
     }
     
     angle = random.choice(list(angles.keys()))
     func = random.choice(['sin', 'cos'])
-    answer = angles[angle][func]
+    exact_answer, decimal_answer = angles[angle][func]
 
     return {
         "topic": "Тригонометрия",
-        "text": f"Вычислите {func}({angle}°)",
-        "answer": answer,
+        "text": f"Вычислите {func}({angle}°)\nОтвет можно дать как в точном виде ({exact_answer}), так и в десятичном ({decimal_answer})",
+        "answer": [exact_answer, decimal_answer],
+        "answer_type": "trig_multi",  # тип ответа - принимает несколько форматов
         "exam_type": exam_type,
         "level": level,
         "complexity": 2,
-        "hint": f"Используйте табличное значение: {func}({angle}°) = {answer}"
+        "hint": f"Табличное значение: {func}({angle}°) = {exact_answer} ≈ {decimal_answer}"
     }
 
 
@@ -375,6 +378,33 @@ def generate_problems():
 
     for topic, count in sorted(topics.items()):
         print(f"- {topic}: {count} задач")
+
+
+# Функция проверки ответа
+def check_answer(problem: dict, user_answer: str) -> bool:
+    """Проверяет ответ пользователя с учетом типа ответа"""
+    answer_type = problem.get("answer_type", "string")  # по умолчанию строковое сравнение
+    
+    if answer_type == "integer":
+        try:
+            return int(user_answer) == int(problem["answer"])
+        except ValueError:
+            return False
+            
+    elif answer_type == "float":
+        try:
+            return abs(float(user_answer) - float(problem["answer"])) < 0.001
+        except ValueError:
+            return False
+            
+    elif answer_type == "trig_multi":
+        # Для тригонометрических задач принимаем оба варианта ответа
+        answers = problem["answer"]
+        user_answer = user_answer.replace(" ", "").lower()
+        return any(ans.replace(" ", "").lower() == user_answer for ans in answers)
+            
+    # Для остальных типов - строгое строковое сравнение
+    return user_answer.strip() == problem["answer"].strip()
 
 
 if __name__ == "__main__":
