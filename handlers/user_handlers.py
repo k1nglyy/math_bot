@@ -51,6 +51,28 @@ class UserState(StatesGroup):
     solving_task = State()
 
 
+class TaskManager:
+    def __init__(self):
+        self.used_tasks = set()  # Множество для хранения использованных заданий
+        self.all_tasks = [...]  # Здесь должен быть ваш список всех возможных заданий
+    
+    def get_new_task(self):
+        # Получаем список доступных заданий (те, которые ещё не использовались)
+        available_tasks = [task for task in self.all_tasks if task not in self.used_tasks]
+        
+        # Если все задания уже были использованы
+        if not available_tasks:
+            raise Exception("Все задания уже были использованы!")
+        
+        # Выбираем случайное задание из доступных
+        task = random.choice(available_tasks)
+        
+        # Добавляем задание в множество использованных
+        self.used_tasks.add(task)
+        
+        return task
+
+
 async def format_task_message(problem: dict) -> str:
     """Форматирует сообщение с задачей"""
     topic_icons = {
