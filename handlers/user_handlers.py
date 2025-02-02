@@ -553,17 +553,19 @@ async def check_answer(message: types.Message, state: FSMContext):
         elif message.text == "📚 Получить задачу":
             await send_task(message, state)
             return
+        elif message.text == "🏆 Достижения":
+            await show_achievements(message)
+            return
+        elif message.text == "ℹ️ Помощь":
+            await show_help(message)
+            return
 
         # Получаем данные о текущей задаче
         data = await state.get_data()
         problem = data.get('current_problem')
+
         if not problem:
-            await message.answer(
-                "⚠️ *Сначала запросите задачу!*\n\n"
-                "Нажмите '📚 Получить задачу'",
-                parse_mode="Markdown",
-                reply_markup=main_menu
-            )
+            await send_task(message, state)
             return
 
         # Проверяем ответ
@@ -575,8 +577,7 @@ async def check_answer(message: types.Message, state: FSMContext):
             await message.answer(
                 "✨ *Отлично!* Правильный ответ! 🎉\n\n"
                 "_Так держать!_",
-                parse_mode="Markdown",
-                reply_markup=main_menu
+                parse_mode="Markdown"
             )
         else:
             hint_text = (
@@ -585,7 +586,7 @@ async def check_answer(message: types.Message, state: FSMContext):
                 f"Правильный ответ: `{problem['answer']}`\n\n"
                 f"💡 *Подсказка:*\n{problem['hint']}"
             )
-            await message.answer(hint_text, parse_mode="Markdown", reply_markup=main_menu)
+            await message.answer(hint_text, parse_mode="Markdown")
 
         # Проверяем достижения
         new_achievements = check_achievements(message.from_user.id)
@@ -596,10 +597,12 @@ async def check_answer(message: types.Message, state: FSMContext):
             )
             for ach in new_achievements:
                 achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
-            await message.answer(achievements_text, parse_mode="Markdown", reply_markup=main_menu)
+            await message.answer(achievements_text, parse_mode="Markdown")
 
-        # Показываем статистику и отправляем новую задачу
+        # Показываем статистику
         await show_stats(message)
+
+        # Отправляем новую задачу
         await send_task(message, state)
 
     except Exception as e:
@@ -611,8 +614,7 @@ async def check_answer(message: types.Message, state: FSMContext):
             "🔹 Дроби: `1/2`\n"
             "🔹 Несколько ответов: `2; -5`\n"
             "🔹 Вероятности: `0.5` или `1/2`",
-            parse_mode="Markdown",
-            reply_markup=main_menu
+            parse_mode="Markdown"
         )
 
 
