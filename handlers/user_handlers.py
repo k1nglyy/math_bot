@@ -263,75 +263,73 @@ async def process_exam_choice(message: types.Message, state: FSMContext):
 
 @router.message(UserState.choosing_level)
 async def process_level_choice(message: types.Message, state: FSMContext):
-    try:
-        if message.text not in ["База", "Профиль"]:
-            await message.answer("Пожалуйста, выберите 'База' или 'Профиль'", reply_markup=level_menu)
-            return
+    # Приводим ответ пользователя к нижнему регистру для сравнения
+    user_choice = message.text.lower()
 
-        logger.info(f"User {message.from_user.id} selected level: {message.text}")
-        level = message.text.lower()
-        data = await state.get_data()
-        exam_type = data.get('exam_type', 'ЕГЭ')
-
-        await state.update_data(level=level)
-        logger.info(f"User {message.from_user.id} state data: {await state.get_data()}")
-        await state.set_state(UserState.solving_task)
+    if user_choice not in ["база", "профиль"]:
         await message.answer(
-            f"✅ Выбран {exam_type} ({level}).\nНажмите '📚 Получить задачу'!",
-            reply_markup=main_menu
+            "Пожалуйста, выберите 'База' или 'Профиль'",
+            reply_markup=level_menu
         )
-    except Exception as e:
-        logger.error(f"Error in process_level_choice: {e}")
-        await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
+        return
+
+    await state.update_data(level=user_choice)
+    await state.set_state(UserState.solving_task)
+
+    await message.answer(
+        f"✅ Выбран ЕГЭ ({user_choice}).\nНажмите '📚 Получить задачу'!",
+        reply_markup=main_menu
+    )
 
 
 @router.message(lambda message: message.text == "📚 Получить задачу")
 async def send_task(message: types.Message, state: FSMContext):
-    """Отправляет новую задачу пользователю"""
     try:
-        logger.info(f"User {message.from_user.id} requesting task")
         data = await state.get_data()
-
         exam_type = data.get('exam_type')
         level = data.get('level')
+        last_topic = data.get('last_topic')
 
         if not exam_type or not level:
+            await state.set_state(UserState.choosing_exam)
             await message.answer(
-                "⚠️ Сначала выберите тип экзамена!",
+                "⚠️ *Сначала выберите тип экзамена!*\n\n"
+                "Нажмите '🎓 Выбрать экзамен'",
+                parse_mode="Markdown",
                 reply_markup=main_menu
             )
             return
 
-        # Временно используем get_problem вместо get_adaptive_problem
-        problem = get_problem(exam_type, level)
+        # Получаем статистику пользователя для адаптивной сложности
+        user_stats = get_user_stats(message.from_user.id)
+        problem = get_adaptive_problem(exam_type, level, last_topic, user_stats)
 
         if not problem:
             await message.answer(
-                "😔 Не удалось найти задачу. Попробуйте другой тип экзамена.",
+                "😔 *Извините, не удалось найти подходящую задачу.*\n\n"
+                "Попробуйте выбрать другой тип экзамена.",
+                parse_mode="Markdown",
                 reply_markup=main_menu
             )
-            logger.error(f"No problem found for exam_type={exam_type}, level={level}")
             return
 
-        # Сохраняем только необходимые данные в состоянии
-        await state.update_data(
-            current_problem={
-                'id': problem.get('id', '0'),  # Добавляем значение по умолчанию
-                'answer': problem['answer'],
-                'topic': problem['topic'],
-                'hint': problem.get('hint', 'Подсказка недоступна')
-            }
+        await state.update_data(last_topic=problem['topic'])
+        await state.update_data(current_problem=problem)
+
+        task_message = (
+            f"📏 *{problem['topic']}* ({exam_type}, {level})\n"
+            f"Сложность: {'⭐' * problem['complexity']}\n\n"
+            f"{problem['text']}\n\n"
+            f"✏️ Введите ответ:"
         )
-
-        task_message = await format_task_message(problem)
-        await message.answer(task_message, reply_markup=main_menu)
-
-        logger.info(f"Sent problem to user {message.from_user.id}: {problem['id']}")
+        await message.answer(task_message, parse_mode="Markdown", reply_markup=main_menu)
 
     except Exception as e:
-        logger.error(f"Error in send_task: {e}")
+        logger.error(f"Error sending task: {e}")
         await message.answer(
-            "😔 Произошла ошибка. Попробуйте еще раз.",
+            "😔 *Произошла ошибка*\n\n"
+            "Попробуйте получить задачу еще раз.",
+            parse_mode="Markdown",
             reply_markup=main_menu
         )
 
