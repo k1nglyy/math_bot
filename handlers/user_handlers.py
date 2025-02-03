@@ -250,23 +250,39 @@ async def process_exam_choice(message: types.Message, state: FSMContext):
 
 @router.message(UserState.choosing_level)
 async def process_level_choice(message: types.Message, state: FSMContext):
-    # Приводим ответ пользователя к нижнему регистру для сравнения
-    user_choice = message.text.lower()
+    try:
+        if message.text == "🔙 Назад":
+            await state.set_state(UserState.choosing_exam)
+            await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
+            return
 
-    if user_choice not in ["база", "профиль"]:
+        if message.text not in ["База", "Профиль"]:
+            await message.answer(
+                "Пожалуйста, выберите 'База' или 'Профиль'",
+                reply_markup=level_menu
+            )
+            return
+
+        level = message.text.lower()
+        data = await state.get_data()
+        exam_type = data.get('exam_type')
+
+        await state.update_data(level=level)
+        await state.set_state(UserState.solving_task)
+
         await message.answer(
-            "Пожалуйста, выберите 'База' или 'Профиль'",
-            reply_markup=level_menu
+            f"✅ Выбран {exam_type} ({message.text}).\nНажмите '📚 Получить задачу'!",
+            reply_markup=main_menu
         )
-        return
 
-    await state.update_data(level=user_choice)
-    await state.set_state(UserState.solving_task)
+        logger.info(f"Level selected: exam_type={exam_type}, level={level}")
 
-    await message.answer(
-        f"✅ Выбран ЕГЭ ({user_choice}).\nНажмите '📚 Получить задачу'!",
-        reply_markup=main_menu
-    )
+    except Exception as e:
+        logger.error(f"Error in process_level_choice: {e}")
+        await message.answer(
+            "Произошла ошибка. Попробуйте еще раз.",
+            reply_markup=main_menu
+        )
 
 
 @router.message(lambda message: message.text == "📚 Получить задачу")
@@ -283,34 +299,31 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        # Получаем задачу
+        # Нормализация уровня
+        if exam_type == "ОГЭ":
+            level = "база"
+        elif level in ["База", "Профиль"]:
+            level = level.lower()
+
+        logger.info(f"Getting task for exam_type={exam_type}, level={level}")
         problem = task_manager.get_new_task(exam_type, level)
 
         if not problem:
+            logger.error(f"No problems found for exam_type={exam_type}, level={level}")
             await message.answer(
-                "😔 Не удалось найти подходящую задачу.",
+                "😔 Не удалось найти задачу. Попробуйте другой тип экзамена или уровень.",
                 reply_markup=main_menu
             )
             return
 
-        # Устанавливаем состояние решения задачи
-        await state.set_state(UserState.solving_task)
         await state.update_data(current_problem=problem)
-
-        # Форматируем сообщение с задачей
-        task_message = (
-            f"📏 {problem['topic']} ({exam_type}, {level})\n"
-            f"Сложность: {'⭐' * problem['complexity']}\n\n"
-            f"{problem['text']}\n\n"
-            "✏️ Введите ответ:"
-        )
-
-        await message.answer(task_message, reply_markup=main_menu)
+        task_message = await format_task_message(problem)
+        await message.answer(task_message, parse_mode="Markdown", reply_markup=main_menu)
 
     except Exception as e:
         logger.error(f"Error sending task: {e}")
         await message.answer(
-            "😔 Произошла ошибка. Попробуйте получить задачу еще раз.",
+            "😔 Произошла ошибка при получении задачи. Попробуйте еще раз или выберите другой тип экзамена.",
             reply_markup=main_menu
         )
 
