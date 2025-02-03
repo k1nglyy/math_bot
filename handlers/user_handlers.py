@@ -139,10 +139,13 @@ async def format_task_message(problem: dict) -> str:
 async def format_stats_message(stats: dict) -> str:
     total_attempts = stats['total_attempts']
     solved = stats['solved']
-    accuracy = stats['accuracy']
+    accuracy = round((solved / total_attempts * 100) if total_attempts > 0 else 0, 1)
     level = stats['level']
     rank = stats['rank']
-    progress = max(0, stats['progress'])
+
+    # Вычисляем прогресс до следующего уровня
+    tasks_per_level = 10  # Количество задач для перехода на следующий уровень
+    progress = ((solved % tasks_per_level) / tasks_per_level) * 100
 
     # Прогресс-бар
     progress_bar_length = 10
@@ -152,7 +155,7 @@ async def format_stats_message(stats: dict) -> str:
     stats_message = (
         f"📊 *Ваша статистика:*\n\n"
         f"{rank}\n"
-        f"Уровень: {level} {progress_bar} {progress}%\n\n"
+        f"Уровень: {level} {progress_bar} {progress:.1f}%\n\n"
         f"📝 Всего попыток: `{total_attempts}`\n"
         f"✅ Решено задач: `{solved}`\n"
         f"🎯 Точность: `{accuracy}%`\n\n"
@@ -572,17 +575,19 @@ async def check_answer(message: types.Message, state: FSMContext):
         update_user_stats(message.from_user.id, is_correct)
 
         if is_correct:
-            await message.answer(
-                "✨ *Отлично!* Правильный ответ! 🎉\n\n"
-                "_Так держать!_",
-                parse_mode="Markdown"
+            response = (
+                "✨ *Правильно!* 🎉\n\n"
+                f"*Объяснение:*\n{problem.get('explanation', 'Объяснение недоступно.')}\n\n"
+                "_Отличная работа! Продолжайте в том же духе!_"
             )
+            await message.answer(response, parse_mode="Markdown")
         else:
             hint_text = (
                 f"❌ *Неверно*\n\n"
                 f"Ваш ответ: `{user_answer}`\n"
                 f"Правильный ответ: `{problem['answer']}`\n\n"
-                f"💡 *Подсказка:*\n{problem['hint']}"
+                f"*Объяснение:*\n{problem.get('explanation', 'Объяснение недоступно.')}\n\n"
+                f"💡 *Подсказка для следующей попытки:*\n{problem.get('hint', 'Подсказка недоступна.')}"
             )
             await message.answer(hint_text, parse_mode="Markdown")
 
