@@ -221,12 +221,10 @@ async def cmd_start(message: types.Message, state: FSMContext):
         "Удачи в подготовке! 🍀",
         reply_markup=main_menu
     )
-    await state.set_state(UserState.choosing_exam)
 
 
 @router.message(lambda message: message.text == "🎓 Выбрать экзамен")
 async def choose_exam(message: types.Message, state: FSMContext):
-    # Очищаем предыдущие данные при смене экзамена
     await state.clear()
     await state.set_state(UserState.choosing_exam)
     await message.answer(
@@ -237,11 +235,9 @@ async def choose_exam(message: types.Message, state: FSMContext):
 
 @router.message(UserState.choosing_exam)
 async def process_exam_choice(message: types.Message, state: FSMContext):
-    if message.text == "📚 Получить задачу":
-        await send_task(message, state)
-        return
-    elif message.text == "📊 Статистика":
-        await show_stats(message)
+    if message.text == "🔙 Назад":
+        await state.clear()
+        await message.answer("Выберите действие:", reply_markup=main_menu)
         return
 
     if message.text not in ["ЕГЭ", "ОГЭ"]:
@@ -259,22 +255,19 @@ async def process_exam_choice(message: types.Message, state: FSMContext):
             "📊 Выберите уровень:",
             reply_markup=level_menu
         )
-    else:
+    else:  # ОГЭ
         await state.update_data(level="база")
-        await state.set_state(UserState.solving_task)
         await message.answer(
-            f"✅ Выбран {message.text}.\nНажмите '📚 Получить задачу'!",
+            f"✅ Выбран {message.text}.\nТеперь вы можете получить задачу!",
             reply_markup=main_menu
         )
 
 
 @router.message(UserState.choosing_level)
 async def process_level_choice(message: types.Message, state: FSMContext):
-    if message.text == "📚 Получить задачу":
-        await send_task(message, state)
-        return
-    elif message.text == "📊 Статистика":
-        await show_stats(message)
+    if message.text == "🔙 Назад":
+        await state.set_state(UserState.choosing_exam)
+        await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
         return
 
     if message.text.lower() not in ["база", "профиль"]:
@@ -285,10 +278,8 @@ async def process_level_choice(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(level=message.text.lower())
-    await state.set_state(UserState.solving_task)
-
     await message.answer(
-        f"✅ Выбран ЕГЭ ({message.text.lower()}).\nНажмите '📚 Получить задачу'!",
+        f"✅ Выбран ЕГЭ ({message.text.lower()}).\nТеперь вы можете получить задачу!",
         reply_markup=main_menu
     )
 
@@ -296,66 +287,42 @@ async def process_level_choice(message: types.Message, state: FSMContext):
 @router.message(lambda message: message.text == "📚 Получить задачу")
 async def send_task(message: types.Message, state: FSMContext):
     try:
-        current_state = await state.get_state()
         data = await state.get_data()
         exam_type = data.get('exam_type')
         level = data.get('level')
 
-        # Если нет данных об экзамене, отправляем на выбор
         if not exam_type:
-            await state.set_state(UserState.choosing_exam)
             await message.answer(
-                "⚠️ Сначала выберите тип экзамена!\n\n"
-                "Нажмите '🎓 Выбрать экзамен'",
-                reply_markup=exam_menu
+                "⚠️ Сначала выберите тип экзамена!\nНажмите '🎓 Выбрать экзамен'",
+                reply_markup=main_menu
             )
             return
 
-        # Если ЕГЭ и нет уровня, отправляем на выбор уровня
         if exam_type == "ЕГЭ" and not level:
-            await state.set_state(UserState.choosing_level)
             await message.answer(
-                "📊 Выберите уровень:",
+                "⚠️ Выберите уровень ЕГЭ (база/профиль)",
                 reply_markup=level_menu
             )
             return
 
         # Получаем задачу
-        user_stats = get_user_stats(message.from_user.id)
-        last_topic = data.get('last_topic')
-        problem = get_adaptive_problem(exam_type, level, last_topic, user_stats)
+        problem = task_manager.get_new_task(exam_type, level)
 
         if not problem:
             await message.answer(
-                "😔 *Извините, не удалось найти подходящую задачу.*\n\n"
-                "Попробуйте выбрать другой тип экзамена.",
-                parse_mode="Markdown",
+                "😔 Не удалось найти подходящую задачу.\nПопробуйте выбрать другой тип экзамена.",
                 reply_markup=main_menu
             )
             return
 
-        # Сохраняем данные о задаче
-        await state.update_data(
-            last_topic=problem['topic'],
-            current_problem=problem
-        )
-        await state.set_state(UserState.solving_task)
-
-        # Отправляем задачу
-        task_message = (
-            f"📏 *{problem['topic']}* ({exam_type}, {level})\n"
-            f"Сложность: {'⭐' * problem['complexity']}\n\n"
-            f"{problem['text']}\n\n"
-            f"✏️ Введите ответ:"
-        )
+        await state.update_data(current_problem=problem)
+        task_message = await format_task_message(problem)
         await message.answer(task_message, parse_mode="Markdown", reply_markup=main_menu)
 
     except Exception as e:
         logger.error(f"Error sending task: {e}")
         await message.answer(
-            "😔 *Произошла ошибка*\n\n"
-            "Попробуйте получить задачу еще раз.",
-            parse_mode="Markdown",
+            "😔 Произошла ошибка. Попробуйте получить задачу еще раз.",
             reply_markup=main_menu
         )
 
