@@ -224,41 +224,28 @@ async def cmd_start(message: types.Message):
 
 @router.message(lambda message: message.text == "🎓 Выбрать экзамен")
 async def choose_exam(message: types.Message, state: FSMContext):
-    try:
-        logger.info(f"User {message.from_user.id} choosing exam")
-        await state.clear()  # Очищаем предыдущее состояние
-        await state.set_state(UserState.choosing_exam)
-        await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
-    except Exception as e:
-        logger.error(f"Error in choose_exam: {e}")
-        await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
+    await state.set_state(UserState.choosing_exam)
+    await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
 
 
 @router.message(UserState.choosing_exam)
 async def process_exam_choice(message: types.Message, state: FSMContext):
-    try:
-        if message.text not in ["ЕГЭ", "ОГЭ"]:
-            await message.answer("Пожалуйста, выберите ЕГЭ или ОГЭ", reply_markup=exam_menu)
-            return
+    if message.text not in ["ЕГЭ", "ОГЭ"]:
+        await message.answer("Пожалуйста, выберите ЕГЭ или ОГЭ", reply_markup=exam_menu)
+        return
 
-        logger.info(f"User {message.from_user.id} selected exam: {message.text}")
-        exam_type = message.text
-        await state.update_data(exam_type=exam_type)
+    await state.update_data(exam_type=message.text)
+    await state.set_state(UserState.choosing_level)
 
-        if exam_type == "ОГЭ":
-            await state.update_data(level="база")
-            logger.info(f"User {message.from_user.id} state data: {await state.get_data()}")
-            await state.set_state(UserState.solving_task)
-            await message.answer(
-                "✅ Выбран ОГЭ (базовый уровень).\nНажмите '📚 Получить задачу'!",
-                reply_markup=main_menu
-            )
-        else:
-            await state.set_state(UserState.choosing_level)
-            await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
-    except Exception as e:
-        logger.error(f"Error in process_exam_choice: {e}")
-        await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
+    if message.text == "ЕГЭ":
+        await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
+    else:
+        await state.update_data(level="база")
+        await state.set_state(UserState.solving_task)
+        await message.answer(
+            f"✅ Выбран {message.text}.\nНажмите '📚 Получить задачу'!",
+            reply_markup=main_menu
+        )
 
 
 @router.message(UserState.choosing_level)
@@ -288,48 +275,42 @@ async def send_task(message: types.Message, state: FSMContext):
         data = await state.get_data()
         exam_type = data.get('exam_type')
         level = data.get('level')
-        last_topic = data.get('last_topic')
 
         if not exam_type or not level:
-            await state.set_state(UserState.choosing_exam)
             await message.answer(
-                "⚠️ *Сначала выберите тип экзамена!*\n\n"
-                "Нажмите '🎓 Выбрать экзамен'",
-                parse_mode="Markdown",
+                "⚠️ Сначала выберите тип экзамена!\nНажмите '🎓 Выбрать экзамен'",
                 reply_markup=main_menu
             )
             return
 
-        # Получаем статистику пользователя для адаптивной сложности
-        user_stats = get_user_stats(message.from_user.id)
-        problem = get_adaptive_problem(exam_type, level, last_topic, user_stats)
+        # Получаем задачу
+        problem = task_manager.get_new_task(exam_type, level)
 
         if not problem:
             await message.answer(
-                "😔 *Извините, не удалось найти подходящую задачу.*\n\n"
-                "Попробуйте выбрать другой тип экзамена.",
-                parse_mode="Markdown",
+                "😔 Не удалось найти подходящую задачу.",
                 reply_markup=main_menu
             )
             return
 
-        await state.update_data(last_topic=problem['topic'])
+        # Устанавливаем состояние решения задачи
+        await state.set_state(UserState.solving_task)
         await state.update_data(current_problem=problem)
 
+        # Форматируем сообщение с задачей
         task_message = (
-            f"📏 *{problem['topic']}* ({exam_type}, {level})\n"
+            f"📏 {problem['topic']} ({exam_type}, {level})\n"
             f"Сложность: {'⭐' * problem['complexity']}\n\n"
             f"{problem['text']}\n\n"
-            f"✏️ Введите ответ:"
+            "✏️ Введите ответ:"
         )
-        await message.answer(task_message, parse_mode="Markdown", reply_markup=main_menu)
+
+        await message.answer(task_message, reply_markup=main_menu)
 
     except Exception as e:
         logger.error(f"Error sending task: {e}")
         await message.answer(
-            "😔 *Произошла ошибка*\n\n"
-            "Попробуйте получить задачу еще раз.",
-            parse_mode="Markdown",
+            "😔 Произошла ошибка. Попробуйте получить задачу еще раз.",
             reply_markup=main_menu
         )
 
@@ -516,21 +497,16 @@ def check_single_answer(user_value, correct_value, problem_type):
 
 @router.message(UserState.solving_task)
 async def check_answer(message: types.Message, state: FSMContext):
-    """Проверка ответа пользователя"""
     try:
-        if message.text in ["📊 Статистика", "🏆 Достижения", "ℹ️ Помощь", "🎓 Выбрать экзамен"]:
-            if message.text == "📊 Статистика":
-                await show_stats(message)
-            elif message.text == "🏆 Достижения":
-                await show_achievements(message)
-            elif message.text == "ℹ️ Помощь":
-                await show_help(message)
-            elif message.text == "🎓 Выбрать экзамен":
-                await choose_exam(message, state)
+        # Пропускаем обработку команд меню
+        menu_commands = [item.text for row in main_menu.keyboard for item in row]
+        if message.text in menu_commands:
             return
 
         data = await state.get_data()
         problem = data.get('current_problem')
+        exam_type = data.get('exam_type')
+        level = data.get('level')
 
         if not problem:
             await message.answer(
@@ -546,11 +522,9 @@ async def check_answer(message: types.Message, state: FSMContext):
         update_user_stats(message.from_user.id, is_correct)
 
         if is_correct:
-            await message.answer(
+            response = (
                 "✨ *Отлично!* Правильный ответ! 🎉\n\n"
-                "_Так держать!_",
-                parse_mode="Markdown",
-                reply_markup=main_menu
+                "_Нажмите '📚 Получить задачу' для следующего задания_"
             )
 
             # Проверяем новые достижения
@@ -558,35 +532,41 @@ async def check_answer(message: types.Message, state: FSMContext):
             if new_achievements:
                 achievements_text = (
                     "🎉 *Поздравляем!*\n\n"
-                    "*Получены новые достижения:*\n\n"
+                    "*Новые достижения:*\n\n"
                 )
                 for ach in new_achievements:
-                    achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
+                    achievements_text += (
+                        f"{ach['icon']} *{ach['name']}*\n"
+                        f"└ _{ach['description']}_\n\n"
+                    )
                 await message.answer(achievements_text, parse_mode="Markdown")
         else:
-            hint_text = (
+            response = (
                 f"❌ *Неверно*\n\n"
                 f"Ваш ответ: `{user_answer}`\n"
                 f"Правильный ответ: `{problem['answer']}`\n\n"
                 f"💡 *Подсказка:*\n{problem['hint']}"
             )
-            await message.answer(hint_text, parse_mode="Markdown", reply_markup=main_menu)
 
-        # Показываем статистику в любом случае
-        await show_stats(message)
+        await message.answer(response, parse_mode="Markdown", reply_markup=main_menu)
 
-        # Получаем новую задачу
-        await send_task(message, state)
+        # Показываем статистику после ответа
+        stats = get_user_stats(message.from_user.id)
+        stats_message = await format_stats_message(stats)
+        await message.answer(stats_message, parse_mode="Markdown")
+
+        # Сохраняем состояние экзамена и уровня
+        await state.update_data(exam_type=exam_type, level=level, current_problem=None)
 
     except Exception as e:
         logger.error(f"Error in check_answer: {e}")
         await message.answer(
-            "⚠️ *Примеры правильного формата ответа:*\n\n"
-            "🔹 Целые числа: `50`\n"
-            "🔹 Десятичные дроби: `50.24`\n"
-            "🔹 Дроби: `1/2`\n"
-            "🔹 Несколько ответов: `2; -5`\n"
-            "🔹 Вероятности: `0.5` или `1/2`",
+            "⚠️ *Некорректный формат ответа*\n\n"
+            "Используйте:\n"
+            "- Целые числа: *5*, *-3*\n"
+            "- Десятичные дроби: *3.14*, *-2.5*\n"
+            "- Обыкновенные дроби: *2/3*, *-1/4*\n"
+            "- Несколько ответов через точку с запятой: *1; -2*",
             parse_mode="Markdown",
             reply_markup=main_menu
         )
