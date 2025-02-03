@@ -44,12 +44,10 @@ level_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-
 class UserState(StatesGroup):
     choosing_exam = State()
     choosing_level = State()
     solving_task = State()
-
 
 class TaskManager:
     def __init__(self):
@@ -61,7 +59,6 @@ class TaskManager:
         try:
             # Получаем все доступные задачи для данного экзамена и уровня
             available_problems = get_adaptive_problem(exam_type, level)
-
             if not available_problems:
                 return None
 
@@ -111,10 +108,8 @@ class TaskManager:
             logger.error(f"Error in get_new_task: {e}")
             return None
 
-
 # Создаем глобальный экземпляр TaskManager
 task_manager = TaskManager()
-
 
 async def format_task_message(problem: dict) -> str:
     """Форматирует сообщение с задачей"""
@@ -135,7 +130,6 @@ async def format_task_message(problem: dict) -> str:
         f"✏️ Введите ответ:"
     )
     return message
-
 
 async def format_stats_message(stats: dict) -> str:
     total_attempts = stats['total_attempts']
@@ -186,7 +180,6 @@ async def format_stats_message(stats: dict) -> str:
 
     return stats_message
 
-
 async def format_achievements_message(achievements: List[Dict]) -> str:
     """Форматирует сообщение с достижениями"""
     if not achievements:
@@ -207,7 +200,6 @@ async def format_achievements_message(achievements: List[Dict]) -> str:
         )
     return message
 
-
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
     welcome_text = (
@@ -221,70 +213,62 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(welcome_text, parse_mode="Markdown", reply_markup=main_menu)
 
-
 @router.message(lambda message: message.text == "🎓 Выбрать экзамен")
 async def choose_exam(message: types.Message, state: FSMContext):
-    await state.set_state(UserState.choosing_exam)
-    await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
-
+    try:
+        logger.info(f"User {message.from_user.id} choosing exam")
+        await state.clear()  # Очищаем предыдущее состояние
+        await state.set_state(UserState.choosing_exam)
+        await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
+    except Exception as e:
+        logger.error(f"Error in choose_exam: {e}")
+        await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
 
 @router.message(UserState.choosing_exam)
 async def process_exam_choice(message: types.Message, state: FSMContext):
-    if message.text not in ["ЕГЭ", "ОГЭ"]:
-        await message.answer("Пожалуйста, выберите ЕГЭ или ОГЭ", reply_markup=exam_menu)
-        return
+    try:
+        if message.text not in ["ЕГЭ", "ОГЭ"]:
+            await message.answer("Пожалуйста, выберите ЕГЭ или ОГЭ", reply_markup=exam_menu)
+            return
 
-    await state.update_data(exam_type=message.text)
-    await state.set_state(UserState.choosing_level)
+        logger.info(f"User {message.from_user.id} selected exam: {message.text}")
+        exam_type = message.text
+        await state.update_data(exam_type=exam_type)
 
-    if message.text == "ЕГЭ":
-        await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
-    else:
-        await state.update_data(level="база")
-        await state.set_state(UserState.solving_task)
-        await message.answer(
-            f"✅ Выбран {message.text}.\nНажмите '📚 Получить задачу'!",
-            reply_markup=main_menu
-        )
-
+        if exam_type == "ОГЭ":
+            await state.update_data(level="база")
+            logger.info(f"User {message.from_user.id} state data: {await state.get_data()}")
+            await state.set_state(UserState.solving_task)
+            await message.answer(
+                "✅ Выбран ОГЭ (базовый уровень).\nНажмите '📚 Получить задачу'!",
+                reply_markup=main_menu
+            )
+        else:
+            await state.set_state(UserState.choosing_level)
+            await message.answer("📊 Выберите уровень:", reply_markup=level_menu)
+    except Exception as e:
+        logger.error(f"Error in process_exam_choice: {e}")
+        await message.answer("Произошла ошибка. Попробуйте еще раз.", reply_markup=main_menu)
 
 @router.message(UserState.choosing_level)
 async def process_level_choice(message: types.Message, state: FSMContext):
-    try:
-        if message.text == "🔙 Назад":
-            await state.set_state(UserState.choosing_exam)
-            await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
-            await state.set_state(UserState.choosing_level)
-            return
+    # Приводим ответ пользователя к нижнему регистру для сравнения
+    user_choice = message.text.lower()
 
-        if message.text not in ["База", "Профиль"]:
-            await message.answer(
-                "Пожалуйста, выберите 'База' или 'Профиль'",
-                reply_markup=level_menu
-            )
-            return
-
-        level = message.text.lower()
-        data = await state.get_data()
-        exam_type = data.get('exam_type')
-
-        await state.update_data(level=level)
-        await state.set_state(UserState.solving_task)
-
+    if user_choice not in ["база", "профиль"]:
         await message.answer(
-            f"✅ Выбран {exam_type} ({message.text}).\nНажмите '📚 Получить задачу'!",
-            reply_markup=main_menu
+            "Пожалуйста, выберите 'База' или 'Профиль'",
+            reply_markup=level_menu
         )
+        return
 
-        logger.info(f"Level selected: exam_type={exam_type}, level={level}")
+    await state.update_data(level=user_choice)
+    await state.set_state(UserState.solving_task)
 
-    except Exception as e:
-        logger.error(f"Error in process_level_choice: {e}")
-        await message.answer(
-            "Произошла ошибка. Попробуйте еще раз.",
-            reply_markup=main_menu
-        )
-
+    await message.answer(
+        f"✅ Выбран ЕГЭ ({user_choice}).\nНажмите '📚 Получить задачу'!",
+        reply_markup=main_menu
+    )
 
 @router.message(lambda message: message.text == "📚 Получить задачу")
 async def send_task(message: types.Message, state: FSMContext):
@@ -292,80 +276,50 @@ async def send_task(message: types.Message, state: FSMContext):
         data = await state.get_data()
         exam_type = data.get('exam_type')
         level = data.get('level')
+        last_topic = data.get('last_topic')
 
         if not exam_type or not level:
+            await state.set_state(UserState.choosing_exam)
             await message.answer(
-                "⚠️ Сначала выберите тип экзамена!\nНажмите '🎓 Выбрать экзамен'",
+                "⚠️ *Сначала выберите тип экзамена!*\n\n"
+                "Нажмите '🎓 Выбрать экзамен'",
+                parse_mode="Markdown",
                 reply_markup=main_menu
             )
             return
 
-        # Отладочная информация
-        logger.info(f"Trying to get task with params: exam_type={exam_type}, level={level}")
-
-        # Нормализация значений
-        if exam_type == "ОГЭ":
-            level = "база"
-        elif level in ["База", "Профиль"]:
-            level = level.lower()
-
-        # Временное решение - тестовые задачи
-        test_problems = {
-            ("ЕГЭ", "профиль"): {
-                "id": 1,
-                "topic": "Алгебра",
-                "text": "Решите линейное уравнение: 4x = -16",
-                "answer": "-4",
-                "hint": "1) Перенесите все в одну сторону: 4x - -16 = 0\n2) Разделите обе части на 4\n3) x = -4",
-                "complexity": 1,
-                "exam_type": "ЕГЭ",
-                "level": "профиль"
-            },
-            ("ЕГЭ", "база"): {
-                "id": 2,
-                "topic": "Алгебра",
-                "text": "Вычислите: 2 + 2 × 2",
-                "answer": "6",
-                "hint": "1) Сначала выполните умножение\n2) Затем сложение",
-                "complexity": 1,
-                "exam_type": "ЕГЭ",
-                "level": "база"
-            },
-            ("ОГЭ", "база"): {
-                "id": 3,
-                "topic": "Алгебра",
-                "text": "Упростите выражение: 3x + 2x",
-                "answer": "5x",
-                "hint": "Сложите подобные члены",
-                "complexity": 1,
-                "exam_type": "ОГЭ",
-                "level": "база"
-            }
-        }
-
-        # Пробуем получить тестовую задачу
-        problem = test_problems.get((exam_type, level))
+        # Получаем статистику пользователя для адаптивной сложности
+        user_stats = get_user_stats(message.from_user.id)
+        problem = get_adaptive_problem(exam_type, level, last_topic, user_stats)
 
         if not problem:
-            logger.error(f"No test problems found for exam_type={exam_type}, level={level}")
             await message.answer(
-                f"😔 Задачи для {exam_type} ({level}) временно недоступны.\n"
-                "Попробуйте другой тип экзамена или уровень.",
+                "😔 *Извините, не удалось найти подходящую задачу.*\n\n"
+                "Попробуйте выбрать другой тип экзамена.",
+                parse_mode="Markdown",
                 reply_markup=main_menu
             )
             return
 
+        await state.update_data(last_topic=problem['topic'])
         await state.update_data(current_problem=problem)
-        task_message = await format_task_message(problem)
+
+        task_message = (
+            f"📏 *{problem['topic']}* ({exam_type}, {level})\n"
+            f"Сложность: {'⭐' * problem['complexity']}\n\n"
+            f"{problem['text']}\n\n"
+            f"✏️ Введите ответ:"
+        )
         await message.answer(task_message, parse_mode="Markdown", reply_markup=main_menu)
 
     except Exception as e:
         logger.error(f"Error sending task: {e}")
         await message.answer(
-            "😔 Произошла ошибка при получении задачи. Попробуйте еще раз.",
+            "😔 *Произошла ошибка*\n\n"
+            "Попробуйте получить задачу еще раз.",
+            parse_mode="Markdown",
             reply_markup=main_menu
         )
-
 
 @router.message(lambda message: message.text == "ℹ️ Помощь")
 async def show_help(message: types.Message):
@@ -384,7 +338,6 @@ async def show_help(message: types.Message):
         parse_mode="Markdown"
     )
 
-
 @router.message(lambda message: message.text == "🔙 Назад")
 async def go_back(message: types.Message, state: FSMContext):
     """Обработка кнопки Назад"""
@@ -398,7 +351,6 @@ async def go_back(message: types.Message, state: FSMContext):
         # Возврат в главное меню
         await state.clear()
         await message.answer("Выберите действие:", reply_markup=main_menu)
-
 
 @router.message(lambda message: message.text == "📊 Статистика")
 async def show_stats(message: types.Message):
@@ -460,7 +412,6 @@ async def show_stats(message: types.Message):
             reply_markup=main_menu
         )
 
-
 @router.message(lambda message: message.text == "🏆 Достижения")
 async def show_achievements(message: types.Message):
     """Показывает достижения пользователя"""
@@ -468,7 +419,6 @@ async def show_achievements(message: types.Message):
         achievements = get_user_achievements(message.from_user.id)
         achievements_message = await format_achievements_message(achievements)
         await message.answer(achievements_message, parse_mode="Markdown")
-
     except Exception as e:
         logger.error(f"Error showing achievements: {e}")
         await message.answer(
@@ -476,7 +426,6 @@ async def show_achievements(message: types.Message):
             "Не удалось загрузить достижения.",
             parse_mode="Markdown"
         )
-
 
 def normalize_number(value):
     """Нормализует числовое значение"""
@@ -490,7 +439,6 @@ def normalize_number(value):
         return round(num, 4)
     except ValueError:
         return value
-
 
 def check_answers_equality(user_answer, correct_answer, problem_type):
     """Проверяет равенство ответов с учетом типа задачи"""
@@ -515,11 +463,9 @@ def check_answers_equality(user_answer, correct_answer, problem_type):
 
         # Для задач с одним ответом
         return check_single_answer(user_answer, correct_answer, problem_type)
-
     except Exception as e:
         logger.error(f"Ошибка при сравнении ответов: {e}")
         return False
-
 
 def check_single_answer(user_value, correct_value, problem_type):
     """Проверяет равенство одиночных ответов"""
@@ -541,24 +487,27 @@ def check_single_answer(user_value, correct_value, problem_type):
 
         # Если значения не числовые, сравниваем строки
         return str(user_value).strip().lower() == str(correct_value).strip().lower()
-
     except Exception as e:
         logger.error(f"Ошибка при сравнении одиночных ответов: {e}")
         return False
 
-
 @router.message(UserState.solving_task)
 async def check_answer(message: types.Message, state: FSMContext):
+    """Проверка ответа пользователя"""
     try:
-        # Пропускаем обработку команд меню
-        menu_commands = [item.text for row in main_menu.keyboard for item in row]
-        if message.text in menu_commands:
+        if message.text in ["📊 Статистика", "🏆 Достижения", "ℹ️ Помощь", "🎓 Выбрать экзамен"]:
+            if message.text == "📊 Статистика":
+                await show_stats(message)
+            elif message.text == "🏆 Достижения":
+                await show_achievements(message)
+            elif message.text == "ℹ️ Помощь":
+                await show_help(message)
+            elif message.text == "🎓 Выбрать экзамен":
+                await choose_exam(message, state)
             return
 
         data = await state.get_data()
         problem = data.get('current_problem')
-        exam_type = data.get('exam_type')
-        level = data.get('level')
 
         if not problem:
             await message.answer(
@@ -574,9 +523,11 @@ async def check_answer(message: types.Message, state: FSMContext):
         update_user_stats(message.from_user.id, is_correct)
 
         if is_correct:
-            response = (
+            await message.answer(
                 "✨ *Отлично!* Правильный ответ! 🎉\n\n"
-                "_Нажмите '📚 Получить задачу' для следующего задания_"
+                "_Так держать!_",
+                parse_mode="Markdown",
+                reply_markup=main_menu
             )
 
             # Проверяем новые достижения
@@ -584,45 +535,38 @@ async def check_answer(message: types.Message, state: FSMContext):
             if new_achievements:
                 achievements_text = (
                     "🎉 *Поздравляем!*\n\n"
-                    "*Новые достижения:*\n\n"
+                    "*Получены новые достижения:*\n\n"
                 )
                 for ach in new_achievements:
-                    achievements_text += (
-                        f"{ach['icon']} *{ach['name']}*\n"
-                        f"└ _{ach['description']}_\n\n"
-                    )
+                    achievements_text += f"{ach['icon']} *{ach['name']}*\n└ _{ach['description']}_\n\n"
                 await message.answer(achievements_text, parse_mode="Markdown")
         else:
-            response = (
+            hint_text = (
                 f"❌ *Неверно*\n\n"
                 f"Ваш ответ: `{user_answer}`\n"
                 f"Правильный ответ: `{problem['answer']}`\n\n"
                 f"💡 *Подсказка:*\n{problem['hint']}"
             )
+            await message.answer(hint_text, parse_mode="Markdown", reply_markup=main_menu)
 
-        await message.answer(response, parse_mode="Markdown", reply_markup=main_menu)
+        # Показываем статистику в любом случае
+        await show_stats(message)
 
-        # Показываем статистику после ответа
-        stats = get_user_stats(message.from_user.id)
-        stats_message = await format_stats_message(stats)
-        await message.answer(stats_message, parse_mode="Markdown")
-
-        # Сохраняем состояние экзамена и уровня
-        await state.update_data(exam_type=exam_type, level=level, current_problem=None)
+        # Получаем новую задачу
+        await send_task(message, state)
 
     except Exception as e:
         logger.error(f"Error in check_answer: {e}")
         await message.answer(
-            "⚠️ *Некорректный формат ответа*\n\n"
-            "Используйте:\n"
-            "- Целые числа: *5*, *-3*\n"
-            "- Десятичные дроби: *3.14*, *-2.5*\n"
-            "- Обыкновенные дроби: *2/3*, *-1/4*\n"
-            "- Несколько ответов через точку с запятой: *1; -2*",
+            "⚠️ *Примеры правильного формата ответа:*\n\n"
+            "🔹 Целые числа: `50`\n"
+            "🔹 Десятичные дроби: `50.24`\n"
+            "🔹 Дроби: `1/2`\n"
+            "🔹 Несколько ответов: `2; -5`\n"
+            "🔹 Вероятности: `0.5` или `1/2`",
             parse_mode="Markdown",
             reply_markup=main_menu
         )
-
 
 ege_10_tasks = {
     "easy": [
@@ -631,14 +575,12 @@ ege_10_tasks = {
         "Свойства степеней",
         "Простые тригонометрические выражения (sin, cos)"
     ],
-
     "medium": [
         "Логарифмы (основные свойства)",
         "Показательные уравнения с одним основанием",
         "Тригонометрические формулы",
         "Формулы приведения"
     ],
-
     "hard": [
         "Логарифмические уравнения без замен",
         "Показательные неравенства",
