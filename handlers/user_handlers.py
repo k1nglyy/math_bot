@@ -254,6 +254,7 @@ async def process_level_choice(message: types.Message, state: FSMContext):
         if message.text == "🔙 Назад":
             await state.set_state(UserState.choosing_exam)
             await message.answer("📝 Выберите экзамен:", reply_markup=exam_menu)
+            await state.set_state(UserState.choosing_level)
             return
 
         if message.text not in ["База", "Профиль"]:
@@ -299,19 +300,57 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
-        # Нормализация уровня
+        # Отладочная информация
+        logger.info(f"Trying to get task with params: exam_type={exam_type}, level={level}")
+
+        # Нормализация значений
         if exam_type == "ОГЭ":
             level = "база"
         elif level in ["База", "Профиль"]:
             level = level.lower()
 
-        logger.info(f"Getting task for exam_type={exam_type}, level={level}")
-        problem = task_manager.get_new_task(exam_type, level)
+        # Временное решение - тестовые задачи
+        test_problems = {
+            ("ЕГЭ", "профиль"): {
+                "id": 1,
+                "topic": "Алгебра",
+                "text": "Решите линейное уравнение: 4x = -16",
+                "answer": "-4",
+                "hint": "1) Перенесите все в одну сторону: 4x - -16 = 0\n2) Разделите обе части на 4\n3) x = -4",
+                "complexity": 1,
+                "exam_type": "ЕГЭ",
+                "level": "профиль"
+            },
+            ("ЕГЭ", "база"): {
+                "id": 2,
+                "topic": "Алгебра",
+                "text": "Вычислите: 2 + 2 × 2",
+                "answer": "6",
+                "hint": "1) Сначала выполните умножение\n2) Затем сложение",
+                "complexity": 1,
+                "exam_type": "ЕГЭ",
+                "level": "база"
+            },
+            ("ОГЭ", "база"): {
+                "id": 3,
+                "topic": "Алгебра",
+                "text": "Упростите выражение: 3x + 2x",
+                "answer": "5x",
+                "hint": "Сложите подобные члены",
+                "complexity": 1,
+                "exam_type": "ОГЭ",
+                "level": "база"
+            }
+        }
+
+        # Пробуем получить тестовую задачу
+        problem = test_problems.get((exam_type, level))
 
         if not problem:
-            logger.error(f"No problems found for exam_type={exam_type}, level={level}")
+            logger.error(f"No test problems found for exam_type={exam_type}, level={level}")
             await message.answer(
-                "😔 Не удалось найти задачу. Попробуйте другой тип экзамена или уровень.",
+                f"😔 Задачи для {exam_type} ({level}) временно недоступны.\n"
+                "Попробуйте другой тип экзамена или уровень.",
                 reply_markup=main_menu
             )
             return
@@ -323,7 +362,7 @@ async def send_task(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Error sending task: {e}")
         await message.answer(
-            "😔 Произошла ошибка при получении задачи. Попробуйте еще раз или выберите другой тип экзамена.",
+            "😔 Произошла ошибка при получении задачи. Попробуйте еще раз.",
             reply_markup=main_menu
         )
 
