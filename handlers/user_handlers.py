@@ -247,6 +247,7 @@ async def process_exam_choice(message: types.Message, state: FSMContext):
         )
         return
 
+    # Сохраняем тип экзамена
     await state.update_data(exam_type=message.text)
 
     if message.text == "ЕГЭ":
@@ -257,6 +258,7 @@ async def process_exam_choice(message: types.Message, state: FSMContext):
         )
     else:  # ОГЭ
         await state.update_data(level="база")
+        await state.clear()  # Очищаем состояние после полного выбора
         await message.answer(
             f"✅ Выбран {message.text}.\nТеперь вы можете получить задачу!",
             reply_markup=main_menu
@@ -277,7 +279,9 @@ async def process_level_choice(message: types.Message, state: FSMContext):
         )
         return
 
+    # Сохраняем уровень и очищаем состояние
     await state.update_data(level=message.text.lower())
+    await state.clear()  # Очищаем состояние после выбора
     await message.answer(
         f"✅ Выбран ЕГЭ ({message.text.lower()}).\nТеперь вы можете получить задачу!",
         reply_markup=main_menu
@@ -291,17 +295,10 @@ async def send_task(message: types.Message, state: FSMContext):
         exam_type = data.get('exam_type')
         level = data.get('level')
 
-        if not exam_type:
+        if not exam_type or not level:
             await message.answer(
                 "⚠️ Сначала выберите тип экзамена!\nНажмите '🎓 Выбрать экзамен'",
                 reply_markup=main_menu
-            )
-            return
-
-        if exam_type == "ЕГЭ" and not level:
-            await message.answer(
-                "⚠️ Выберите уровень ЕГЭ (база/профиль)",
-                reply_markup=level_menu
             )
             return
 
@@ -315,6 +312,8 @@ async def send_task(message: types.Message, state: FSMContext):
             )
             return
 
+        # Устанавливаем состояние решения задачи
+        await state.set_state(UserState.solving_task)
         await state.update_data(current_problem=problem)
         task_message = await format_task_message(problem)
         await message.answer(task_message, parse_mode="Markdown", reply_markup=main_menu)
